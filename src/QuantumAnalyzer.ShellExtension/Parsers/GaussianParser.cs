@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Text;
 using System.Text.RegularExpressions;
 using QuantumAnalyzer.ShellExtension.Chemistry;
 using QuantumAnalyzer.ShellExtension.Models;
@@ -10,6 +11,18 @@ namespace QuantumAnalyzer.ShellExtension.Parsers
     public class GaussianParser : IQuantumParser
     {
         private const double HartreeToEv = 27.211385;
+
+        // ── Large-file optimisation ───────────────────────────────────────────────
+        // Gaussian OPT/FREQ jobs repeat the full orientation block and eigenvalues
+        // for every step, growing to 100+ MB.  All we need is:
+        //   HEAD  — route section, charge/mult, gen basis (always in first ~50–200 lines)
+        //   BACKWARD SCAN — last "Standard orientation:" / "Input orientation:" for geometry
+        //   TAIL  — last SCF Done, eigenvalues, frequencies, thermochemistry, termination flag
+        private const long LargeFileThreshold = 5L * 1024 * 1024;  // 5 MB
+        private const int  HeadLineCount      = 300;                 // lines from start
+        private const long TailBytes          = 4L * 1024 * 1024;   // 4 MB from end
+
+        // ──────────────────────────────────────────────────────────────────────────
 
         public bool CanParse(string[] firstLines)
         {
@@ -35,6 +48,103 @@ namespace QuantumAnalyzer.ShellExtension.Parsers
         }
 
         public ParseResult Parse(TextReader reader)
+        {
+            // Route large seekable files through the head+tail optimisation.
+            if (reader is StreamReader sr &&
+                sr.BaseStream.CanSeek &&
+                sr.BaseStream.Length > LargeFileThreshold)
+            {
+                return ParseLargeFile(sr);
+            }
+            return ParseFull(reader);
+        }
+
+        // ── Head + tail optimisation ──────────────────────────────────────────────
+        // Reads the first HeadLineCount lines (route/basis/charge), does a fast
+        // backward chunk scan to locate the last orientation block (final geometry),
+        // then reads the last TailBytes (energy/eigenvalues/thermo/termination).
+        // CalcType is determined from the route section in the HEAD, so no
+        // post-hoc correction is needed (unlike the ORCA parser).
+        private ParseResult ParseLargeFile(StreamReader sr)
+        {
+            var stream = sr.BaseStream;
+            var sb = new StringBuilder();
+
+            // Head ────────────────────────────────────────────────────────────────
+            stream.Seek(0, SeekOrigin.Begin);
+            sr.DiscardBufferedData();
+            for (int i = 0; i < HeadLineCount; i++)
+            {
+                string ln = sr.ReadLine();
+                if (ln == null) break;
+                sb.AppendLine(ln);
+            }
+
+            // Find last orientation block (backward chunk scan) ───────────────────
+            // Prefer "Standard orientation:" (default); fall back to "Input orientation:"
+            // (printed when nosymm is used).
+            long orientPos = FindLastByteOffset(stream, "Standard orientation:");
+            if (orientPos < 0)
+                orientPos = FindLastByteOffset(stream, "Input orientation:");
+
+            List<string> orientLines = null;
+            if (orientPos >= 0)
+                orientLines = ReadGaussianOrientationBlock(stream, orientPos);
+
+            // Tail ────────────────────────────────────────────────────────────────
+            long tailStart = stream.Length - TailBytes;
+            stream.Seek(tailStart, SeekOrigin.Begin);
+            sr.DiscardBufferedData();
+            sr.ReadLine(); // discard the partial line at the seek boundary
+
+            string tl;
+            while ((tl = sr.ReadLine()) != null)
+                sb.AppendLine(tl);
+
+            // Parse the combined head+tail slice with the normal parser
+            ParseResult result;
+            using (var combined = new StringReader(sb.ToString()))
+                result = ParseFull(combined);
+
+            if (result == null) return null;
+
+            // Override molecule with coordinates from the last orientation block.
+            // The tail window may not contain an orientation block at all for very
+            // large OPT+FREQ jobs where thermochemistry dominates the last 4 MB.
+            if (orientLines != null && orientLines.Count > 0)
+            {
+                var molecule = new Molecule();
+                foreach (string ol in orientLines)
+                {
+                    string[] parts = ol.Trim().Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+                    if (parts.Length >= 6 &&
+                        int.TryParse(parts[0], out _) &&
+                        int.TryParse(parts[1], out int atomicZ) &&
+                        double.TryParse(parts[3], System.Globalization.NumberStyles.Float,
+                            System.Globalization.CultureInfo.InvariantCulture, out double x) &&
+                        double.TryParse(parts[4], System.Globalization.NumberStyles.Float,
+                            System.Globalization.CultureInfo.InvariantCulture, out double y) &&
+                        double.TryParse(parts[5], System.Globalization.NumberStyles.Float,
+                            System.Globalization.CultureInfo.InvariantCulture, out double z))
+                    {
+                        string element = ElementData.SymbolFromAtomicNumber(atomicZ);
+                        molecule.Atoms.Add(new Atom(element, x, y, z));
+                    }
+                }
+                if (molecule.Atoms.Count > 0)
+                {
+                    molecule.Bonds = BondDetector.Detect(molecule.Atoms);
+                    result.Molecule = molecule;
+                    result.Summary.AtomCounts = BuildAtomCounts(molecule.Atoms);
+                }
+            }
+
+            return result;
+        }
+
+        // ── Full line-by-line parse ───────────────────────────────────────────────
+        // Used directly for small files; called with the head+tail slice for large ones.
+        private ParseResult ParseFull(TextReader reader)
         {
             var summary = new QuantumSummary { Software = SoftwareType.Gaussian };
             var molecule = new Molecule();
@@ -351,6 +461,103 @@ namespace QuantumAnalyzer.ShellExtension.Parsers
         // ──────────────────────────────────────────────────────────────
         // Helpers
         // ──────────────────────────────────────────────────────────────
+
+        // ── Read orientation block from stream ────────────────────────────────────
+        // Seeks to fromOffset (the start of "Standard/Input orientation:" line),
+        // then collects the atom rows that sit between the 2nd and 3rd dashes blocks.
+        // Gaussian orientation format:
+        //   "                         Standard orientation:"
+        //   " ------------..."   (1st dashes — column headers follow)
+        //   " Center  Atomic  Atomic     Coordinates..."
+        //   " ------------..."   (2nd dashes — atom data follows)
+        //   "  1  6  0  0.000  0.000  0.000"
+        //   " ------------..."   (3rd dashes — end of block)
+        private static List<string> ReadGaussianOrientationBlock(Stream stream, long fromOffset)
+        {
+            const int MaxScanLines = 200;
+            stream.Seek(fromOffset, SeekOrigin.Begin);
+
+            var coords = new List<string>();
+            int dashCount = 0;
+            bool pastHeader = false; // skip the "Standard/Input orientation:" line itself
+
+            using (var reader = new StreamReader(stream, Encoding.UTF8, false, 4096, true))
+            {
+                for (int i = 0; i < MaxScanLines; i++)
+                {
+                    string line = reader.ReadLine();
+                    if (line == null) break;
+
+                    if (!pastHeader) { pastHeader = true; continue; }
+
+                    if (line.Contains("-----"))
+                    {
+                        dashCount++;
+                        if (dashCount == 3) break; // end of atom data
+                        continue;
+                    }
+
+                    if (dashCount == 2) // between 2nd and 3rd dashes = atom rows
+                        coords.Add(line);
+                }
+            }
+            return coords;
+        }
+
+        // ── Backward chunk scan ───────────────────────────────────────────────────
+        // Identical algorithm to OrcaParser.FindLastByteOffset — scans right-to-left
+        // in 64 KB chunks with (markerLen-1) byte overlap at chunk boundaries.
+        // Returns the byte offset of the last occurrence, or -1 if not found.
+        private static long FindLastByteOffset(Stream stream, string marker)
+        {
+            byte[] pat = Encoding.UTF8.GetBytes(marker);
+            if (pat.Length == 0) return -1;
+
+            int overlap = pat.Length - 1;
+            const int chunkSize = 65536;
+            byte[] buffer = new byte[chunkSize + overlap];
+            byte[] rightOverlapBuf = overlap > 0 ? new byte[overlap] : null;
+            int rightOverlapLen = 0;
+
+            long chunkRight = stream.Length;
+            while (chunkRight > 0)
+            {
+                long chunkLeft = Math.Max(0L, chunkRight - chunkSize);
+                int mainLen = (int)(chunkRight - chunkLeft);
+
+                stream.Seek(chunkLeft, SeekOrigin.Begin);
+                int bytesRead = 0;
+                while (bytesRead < mainLen)
+                {
+                    int n = stream.Read(buffer, bytesRead, mainLen - bytesRead);
+                    if (n == 0) break;
+                    bytesRead += n;
+                }
+
+                if (rightOverlapLen > 0)
+                    Buffer.BlockCopy(rightOverlapBuf, 0, buffer, bytesRead, rightOverlapLen);
+
+                int bufLen = bytesRead + rightOverlapLen;
+
+                for (int i = bufLen - pat.Length; i >= 0; i--)
+                {
+                    if (i >= mainLen) continue;
+                    bool found = true;
+                    for (int j = 0; j < pat.Length; j++)
+                    {
+                        if (buffer[i + j] != pat[j]) { found = false; break; }
+                    }
+                    if (found) return chunkLeft + i;
+                }
+
+                rightOverlapLen = Math.Min(overlap, bytesRead);
+                if (rightOverlapLen > 0)
+                    Buffer.BlockCopy(buffer, 0, rightOverlapBuf, 0, rightOverlapLen);
+
+                chunkRight = chunkLeft;
+            }
+            return -1;
+        }
 
         private static void ParseRoute(string route, QuantumSummary s)
         {
