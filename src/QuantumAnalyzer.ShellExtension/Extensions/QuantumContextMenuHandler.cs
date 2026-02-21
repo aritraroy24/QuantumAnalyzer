@@ -102,9 +102,27 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
             }
             catch (Exception ex)
             {
+                // Show the full error (including stack trace) and write to log file for diagnosis
+                string msg = $"Error saving summary:\n{ex.Message}\n\n{ex.StackTrace}";
+                WriteDebugLog("OnSaveSummary ERROR: " + msg);
                 MessageBox.Show($"Error saving summary:\n{ex.Message}",
                                 "QuantumAnalyzer", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
+        }
+
+        /// <summary>
+        /// Appends a timestamped line to %TEMP%\QuantumAnalyzer_debug.log.
+        /// Safe to call from any thread; ignores I/O errors.
+        /// </summary>
+        internal static void WriteDebugLog(string message)
+        {
+            try
+            {
+                string logPath = Path.Combine(Path.GetTempPath(), "QuantumAnalyzer_debug.log");
+                string entry   = $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] {message}{Environment.NewLine}";
+                File.AppendAllText(logPath, entry, System.Text.Encoding.UTF8);
+            }
+            catch { }
         }
 
         // ──────────────────────────────────────────────────────────────────

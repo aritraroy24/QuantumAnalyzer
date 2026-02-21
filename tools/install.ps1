@@ -75,17 +75,40 @@ function Register-ShellexEntries {
 
     # Context Menu Handler — output files only (.log / .out)
     # Registered separately so it does not appear on input / structure files.
-    # Also registered under the ProgID (if one exists) because Windows Explorer
-    # resolves ContextMenuHandlers through the ProgID chain, not the extension key,
-    # when a ProgID is assigned (e.g. .log → txtfile).
+    #
+    # Windows Explorer resolves ContextMenuHandlers through the ProgID chain.
+    # For extensions with no default ProgID (e.g. .log on systems where VSCode
+    # registers it only in OpenWithProgids), Explorer falls back to
+    # SystemFileAssociations\.<ext>.  We register in all four places to be safe:
+    #   1. Extension shellex key (belt-and-suspenders)
+    #   2. SystemFileAssociations\.<ext>  (reliable fallback — always checked)
+    #   3. Default ProgID  (e.g. txtfile if .log has one)
+    #   4. Every ProgID in OpenWithProgids  (e.g. VSCode.log)
     foreach ($path in @('.log', '.out')) {
+        # 1. Extension shellex key
         $key = New-Item -Path "HKCR:\$path\shellex\ContextMenuHandlers\QuantumAnalyzer" -Force
         $key.SetValue('', $ExtGuidMenu)
 
+        # 2. SystemFileAssociations — checked by Explorer when there is no default ProgID
+        $key = New-Item -Path "HKCR:\SystemFileAssociations\$path\shellex\ContextMenuHandlers\QuantumAnalyzer" -Force
+        $key.SetValue('', $ExtGuidMenu)
+
+        # 3. Default ProgID (may be empty on many machines)
         $progId = try { (Get-Item "HKCR:\$path").GetValue('') } catch { $null }
         if ($progId -and (Test-Path "HKCR:\$progId")) {
             $key = New-Item -Path "HKCR:\$progId\shellex\ContextMenuHandlers\QuantumAnalyzer" -Force
             $key.SetValue('', $ExtGuidMenu)
+        }
+
+        # 4. OpenWithProgids (e.g. VSCode.log, Applications\code.exe)
+        $owpPath = "HKCR:\$path\OpenWithProgids"
+        if (Test-Path $owpPath) {
+            foreach ($progIdName in (Get-Item -Path $owpPath).GetValueNames()) {
+                if ($progIdName -and (Test-Path "HKCR:\$progIdName")) {
+                    $key = New-Item -Path "HKCR:\$progIdName\shellex\ContextMenuHandlers\QuantumAnalyzer" -Force
+                    $key.SetValue('', $ExtGuidMenu)
+                }
+            }
         }
     }
 
@@ -104,6 +127,11 @@ function Unregister-ShellexEntries {
         Remove-Item -Path "$base\$IID_InfoTip"                        -Recurse -Force -ErrorAction SilentlyContinue
         Remove-Item -Path "$base\$IID_Preview"                        -Recurse -Force -ErrorAction SilentlyContinue
         Remove-Item -Path "$base\ContextMenuHandlers\QuantumAnalyzer" -Recurse -Force -ErrorAction SilentlyContinue
+    }
+
+    # Remove SystemFileAssociations context menu entries
+    foreach ($path in @('.log', '.out')) {
+        Remove-Item -Path "HKCR:\SystemFileAssociations\$path\shellex\ContextMenuHandlers\QuantumAnalyzer" -Recurse -Force -ErrorAction SilentlyContinue
     }
 
     $phKey = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\PreviewHandlers"
@@ -234,4 +262,32 @@ Start-Process explorer
 
 Write-Host ""
 Write-Host "Installation complete." -ForegroundColor Green
+
+# ---------- Verify key entries -----------------------------------------------
+
+Write-Host ""
+Write-Host "Verification:" -ForegroundColor Yellow
+$checks = @(
+    @{ Label = "COM CLSID (context menu)";         Path = "HKCR:\CLSID\$ExtGuidMenu" },
+    @{ Label = ".log shellex context menu";         Path = "HKCR:\.log\shellex\ContextMenuHandlers\QuantumAnalyzer" },
+    @{ Label = ".out shellex context menu";         Path = "HKCR:\.out\shellex\ContextMenuHandlers\QuantumAnalyzer" },
+    @{ Label = "SFA .log context menu";             Path = "HKCR:\SystemFileAssociations\.log\shellex\ContextMenuHandlers\QuantumAnalyzer" },
+    @{ Label = "SFA .out context menu";             Path = "HKCR:\SystemFileAssociations\.out\shellex\ContextMenuHandlers\QuantumAnalyzer" },
+    @{ Label = "Approved (context menu)";           Path = $ApprovedKey; ValueName = $ExtGuidMenu },
+    @{ Label = ".log shellex preview";              Path = "HKCR:\.log\shellex\$IID_Preview" },
+    @{ Label = ".out shellex preview";              Path = "HKCR:\.out\shellex\$IID_Preview" }
+)
+foreach ($c in $checks) {
+    $ok = if ($c.ContainsKey('ValueName')) {
+        try { $null -ne (Get-ItemProperty -Path $c.Path -Name $c.ValueName -ErrorAction Stop) } catch { $false }
+    } else {
+        Test-Path $c.Path
+    }
+    $status = if ($ok) { "[OK]  " } else { "[MISS]" }
+    $color  = if ($ok) { 'Green'  } else { 'Red'   }
+    Write-Host "  $status $($c.Label)" -ForegroundColor $color
+}
+
+Write-Host ""
 Write-Host "Open Explorer and navigate to a Gaussian or ORCA .log / .out file to test."
+Write-Host "On Windows 11: right-click the file then choose 'Show more options' to see 'Save Summary'." -ForegroundColor DarkCyan
