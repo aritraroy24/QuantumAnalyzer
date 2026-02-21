@@ -37,10 +37,10 @@ namespace QuantumAnalyzer.ShellExtension.Rendering
         /// <paramref name="lowQuality"/> skips gradient spheres and uses flat circles instead,
         /// giving a large speed-up during mouse-drag on large molecules.
         /// </summary>
-        public static Bitmap RenderWithMatrix(Molecule molecule, float[,] rotMatrix, int width, int height, float? fixedScale = null, bool lowQuality = false)
+        public static Bitmap RenderWithMatrix(Molecule molecule, float[,] rotMatrix, int width, int height, float? fixedScale = null, bool lowQuality = false, Color background = default(Color))
         {
             var projected = MoleculeProjector.ProjectWithMatrix(molecule, rotMatrix);
-            return Render(molecule, projected, width, height, fixedScale, lowQuality);
+            return Render(molecule, projected, width, height, fixedScale, lowQuality, background);
         }
 
         /// <summary>
@@ -77,8 +77,9 @@ namespace QuantumAnalyzer.ShellExtension.Rendering
         // ──────────────────────────────────────────────────────────────────
 
         private static Bitmap Render(Molecule molecule, ProjectedAtom[] projected, int width, int height,
-                                     float? fixedScale = null, bool lowQuality = false)
+                                     float? fixedScale = null, bool lowQuality = false, Color background = default(Color))
         {
+            Color bg = background.IsEmpty ? Background : background;
             var bmp = new Bitmap(width, height);
             using (var g = Graphics.FromImage(bmp))
             {
@@ -86,7 +87,7 @@ namespace QuantumAnalyzer.ShellExtension.Rendering
                 g.InterpolationMode = InterpolationMode.HighQualityBicubic;
 
                 // Background
-                g.Clear(Background);
+                g.Clear(bg);
 
                 if (projected == null || projected.Length == 0)
                     return bmp;
@@ -167,9 +168,9 @@ namespace QuantumAnalyzer.ShellExtension.Rendering
                             r = Math.Min(r, baseRadius * 2.5f);
                             Color cpk = ElementData.GetCpkColor(atom.Element);
                             if (lowQuality)
-                                DrawAtomFlat(g, sx, sy, r, cpk, fogFactor, Background);
+                                DrawAtomFlat(g, sx, sy, r, cpk, fogFactor, bg);
                             else
-                                DrawAtomSphere(g, sx, sy, r, cpk, fogFactor, Background);
+                                DrawAtomSphere(g, sx, sy, r, cpk, fogFactor, bg);
                         }
                         else
                         {
@@ -197,7 +198,7 @@ namespace QuantumAnalyzer.ShellExtension.Rendering
 
                                 if (len > rA + rB)
                                 {
-                                    bondPen.Color = ApplyFog(Color.FromArgb(180, 180, 180), fogFactor, Background);
+                                    bondPen.Color = ApplyFog(Color.FromArgb(180, 180, 180), fogFactor, bg);
                                     g.DrawLine(bondPen,
                                         ax + nx * rA, ay + ny * rA,
                                         bx - nx * rB, by - ny * rB);
@@ -207,7 +208,7 @@ namespace QuantumAnalyzer.ShellExtension.Rendering
                     }
                 }
 
-                DrawLegend(g, molecule, width, height, baseRadius, Background);
+                DrawLegend(g, molecule, width, height, baseRadius, bg);
             }
 
             return bmp;

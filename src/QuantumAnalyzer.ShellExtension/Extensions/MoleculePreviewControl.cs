@@ -21,9 +21,13 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
     {
         private PictureBox _picture;
         private Label      _label;
+        private Panel      _bottomPanel;
+        private Button     _bgButton;
         private Timer      _timer;
         private Molecule   _molecule;
         private float      _fixedScale = 0f;
+        private float      _zoomFactor = 1.0f;
+        private Color      _background = Color.FromArgb(18, 18, 30);
         private const float StepDeg = 0.5f;   // degrees per tick for auto-rotation
         private const int   TickMs  = 33;      // ~30 fps
 
@@ -60,12 +64,35 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
                 BackColor = Color.FromArgb(18, 18, 30),
             };
 
-            Controls.Add(_picture);
-            Controls.Add(_label);   // added after Fill so it docks on top
+            _bottomPanel = new Panel
+            {
+                Dock      = DockStyle.Bottom,
+                Height    = 32,
+                BackColor = Color.FromArgb(10, 10, 20),
+            };
 
-            _picture.MouseDown += OnPictureMouseDown;
-            _picture.MouseMove += OnPictureMouseMove;
-            _picture.MouseUp   += OnPictureMouseUp;
+            _bgButton = new Button
+            {
+                Text      = "BG",
+                Width     = 36,
+                Height    = 22,
+                Location  = new System.Drawing.Point(6, 5),
+                FlatStyle = FlatStyle.Flat,
+                Font      = new Font("Segoe UI", 8f),
+                ForeColor = Color.FromArgb(180, 180, 200),
+            };
+            _bgButton.FlatAppearance.BorderColor = Color.Silver;
+            _bgButton.Click += OnBgButtonClick;
+            _bottomPanel.Controls.Add(_bgButton);
+
+            Controls.Add(_picture);
+            Controls.Add(_bottomPanel);
+            Controls.Add(_label);   // added last so it docks on top
+
+            _picture.MouseDown  += OnPictureMouseDown;
+            _picture.MouseMove  += OnPictureMouseMove;
+            _picture.MouseUp    += OnPictureMouseUp;
+            _picture.MouseEnter += (s, e) => this.Focus();  // allow parent to receive scroll
 
             _timer = new Timer { Interval = TickMs };
             _timer.Tick += OnTick;
@@ -146,8 +173,8 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
             int h = Math.Max(_picture.Height, 64);
             try
             {
-                float? scale = _fixedScale > 0f ? _fixedScale : (float?)null;
-                var bmp = MoleculeRenderer.RenderWithMatrix(_molecule, _rotMatrix, w, h, scale, lowQuality);
+                float? scale = _fixedScale > 0f ? _fixedScale * _zoomFactor : (float?)null;
+                var bmp = MoleculeRenderer.RenderWithMatrix(_molecule, _rotMatrix, w, h, scale, lowQuality, _background);
                 var old = _picture.Image;
                 _picture.Image = bmp;
                 old?.Dispose();
@@ -172,6 +199,42 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
             RenderFrame();
         }
 
+        protected override void OnMouseWheel(MouseEventArgs e)
+        {
+            base.OnMouseWheel(e);
+            _zoomFactor *= e.Delta > 0 ? 1.1f : (1f / 1.1f);
+            if (_zoomFactor < 0.2f) _zoomFactor = 0.2f;
+            if (_zoomFactor > 5.0f) _zoomFactor = 5.0f;
+            RenderFrame();
+        }
+
+        private void OnBgButtonClick(object sender, EventArgs e)
+        {
+            using (var dlg = new ColorDialog { Color = _background, FullOpen = true })
+            {
+                if (dlg.ShowDialog() == DialogResult.OK)
+                    ApplyBackground(dlg.Color);
+            }
+        }
+
+        private void ApplyBackground(Color bg)
+        {
+            _background = bg;
+            _picture.BackColor = bg;
+            BackColor = bg;
+
+            float lum = 0.299f * bg.R + 0.587f * bg.G + 0.114f * bg.B;
+            Color textColor = lum > 128f ? Color.Black : Color.White;
+            Color panelBg   = lum > 128f ? Color.FromArgb(220, 220, 225) : Color.FromArgb(10, 10, 20);
+
+            _label.ForeColor       = textColor;
+            _label.BackColor       = panelBg;
+            _bottomPanel.BackColor = panelBg;
+            _bgButton.ForeColor    = textColor;
+
+            RenderFrame();
+        }
+
         protected override void Dispose(bool disposing)
         {
             if (disposing)
@@ -181,6 +244,7 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
                 _picture?.Image?.Dispose();
                 _picture?.Dispose();
                 _label?.Dispose();
+                _bottomPanel?.Dispose();
             }
             base.Dispose(disposing);
         }

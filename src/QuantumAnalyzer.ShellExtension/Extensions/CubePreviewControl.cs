@@ -301,6 +301,7 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
                 Location  = new Point(x, cy),
                 FlatStyle = FlatStyle.Flat,
                 Font      = new Font("Segoe UI", 8f),
+                ForeColor = Color.FromArgb(180, 180, 200),
             };
             _bgButton.FlatAppearance.BorderColor = Color.Silver;
             _bgButton.Click += OnBgButtonClick;

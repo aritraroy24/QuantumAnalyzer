@@ -83,6 +83,15 @@ namespace QuantumAnalyzer.ShellExtension.Parsers
             if (optCyclePos >= 0)
                 optCoordLines = ReadOptCoordBlock(stream, optCyclePos);
 
+            // Find last ORBITAL ENERGIES section (backward chunk scan) ────────────
+            // For large SP jobs the orbital table can sit far from the end of the
+            // file (e.g. line 737k in a 1.35M-line file) and is never reached by
+            // the 4 MB tail window.
+            long orbEnergiesPos = FindLastByteOffset(stream, "ORBITAL ENERGIES");
+            List<string> midOrbitalLines = null;
+            if (orbEnergiesPos >= 0)
+                midOrbitalLines = ReadOrbitalEnergiesBlock(stream, orbEnergiesPos);
+
             // Tail ────────────────────────────────────────────────────────────────
             long tailStart = stream.Length - TailBytes; // > 0: guaranteed by threshold check
             stream.Seek(tailStart, SeekOrigin.Begin);
@@ -144,6 +153,12 @@ namespace QuantumAnalyzer.ShellExtension.Parsers
                     }
                 }
             }
+
+            // Override orbital energies from direct mid-file scan ─────────────────
+            // The backward scan guarantees we use the LAST ORBITAL ENERGIES section,
+            // even when it sits outside the 4 MB tail window.
+            if (midOrbitalLines != null && midOrbitalLines.Count > 0)
+                ParseOrbitalEnergies(midOrbitalLines, result.Summary);
 
             return result;
         }
@@ -255,6 +270,60 @@ namespace QuantumAnalyzer.ShellExtension.Parsers
             }
 
             return coords;
+        }
+
+        // ── Read orbital energies block ───────────────────────────────────────────
+        // Seeks to fromOffset (byte position of "ORBITAL ENERGIES" string), then reads
+        // the orbital data rows that follow the column header.  Stops at the first
+        // blank line after data has started.  Returns only the raw data lines (no
+        // header), which ParseOrbitalEnergies() can consume directly.
+        private static List<string> ReadOrbitalEnergiesBlock(Stream stream, long fromOffset)
+        {
+            const int MaxScanLines = 5000; // enough for any realistic orbital count
+            stream.Seek(fromOffset, SeekOrigin.Begin);
+            var lines = new List<string>();
+            bool dataStarted = false;
+
+            // leaveOpen: true so we don't close the underlying FileStream
+            using (var reader = new StreamReader(stream, Encoding.UTF8, false, 4096, true))
+            {
+                reader.ReadLine(); // consume the partial/full "ORBITAL ENERGIES" line
+
+                for (int i = 0; i < MaxScanLines; i++)
+                {
+                    string line = reader.ReadLine();
+                    if (line == null) break;
+                    string trimmed = line.Trim();
+
+                    if (!dataStarted)
+                    {
+                        // Skip dashes, blank lines, and the "NO  OCC  E(Eh)  E(eV)" header
+                        if (trimmed.StartsWith("---") ||
+                            string.IsNullOrWhiteSpace(trimmed) ||
+                            trimmed.StartsWith("NO", StringComparison.OrdinalIgnoreCase))
+                            continue;
+
+                        // First actual data row: must start with an integer orbital index
+                        string[] p = trimmed.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+                        if (p.Length >= 3 && int.TryParse(p[0], out _))
+                        {
+                            dataStarted = true;
+                            lines.Add(line);
+                        }
+                        continue;
+                    }
+
+                    // In data: blank line signals end of block
+                    if (string.IsNullOrWhiteSpace(trimmed)) break;
+
+                    string[] parts = trimmed.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+                    if (parts.Length < 3 || !int.TryParse(parts[0], out _)) break;
+
+                    lines.Add(line);
+                }
+            }
+
+            return lines;
         }
 
         // ── Full line-by-line parse ───────────────────────────────────────────────
