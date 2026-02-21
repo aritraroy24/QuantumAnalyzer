@@ -167,9 +167,9 @@ namespace QuantumAnalyzer.ShellExtension.Rendering
                             r = Math.Min(r, baseRadius * 2.5f);
                             Color cpk = ElementData.GetCpkColor(atom.Element);
                             if (lowQuality)
-                                DrawAtomFlat(g, sx, sy, r, cpk, fogFactor);
+                                DrawAtomFlat(g, sx, sy, r, cpk, fogFactor, Background);
                             else
-                                DrawAtomSphere(g, sx, sy, r, cpk, fogFactor);
+                                DrawAtomSphere(g, sx, sy, r, cpk, fogFactor, Background);
                         }
                         else
                         {
@@ -197,7 +197,7 @@ namespace QuantumAnalyzer.ShellExtension.Rendering
 
                                 if (len > rA + rB)
                                 {
-                                    bondPen.Color = ApplyFog(Color.FromArgb(180, 180, 180), fogFactor);
+                                    bondPen.Color = ApplyFog(Color.FromArgb(180, 180, 180), fogFactor, Background);
                                     g.DrawLine(bondPen,
                                         ax + nx * rA, ay + ny * rA,
                                         bx - nx * rB, by - ny * rB);
@@ -207,13 +207,13 @@ namespace QuantumAnalyzer.ShellExtension.Rendering
                     }
                 }
 
-                DrawLegend(g, molecule, width, height, baseRadius);
+                DrawLegend(g, molecule, width, height, baseRadius, Background);
             }
 
             return bmp;
         }
 
-        private static void DrawLegend(Graphics g, Molecule molecule, int width, int height, float baseRadius)
+        internal static void DrawLegend(Graphics g, Molecule molecule, int width, int height, float baseRadius, Color background)
         {
             if (molecule?.Atoms == null || molecule.Atoms.Count == 0) return;
 
@@ -230,6 +230,9 @@ namespace QuantumAnalyzer.ShellExtension.Rendering
             float legendRadius = Math.Max(7f, Math.Min(11f, baseRadius * 0.6f));
             float itemSpacing = 22f;
             float maxWidth = width * 0.9f;
+
+            float bgLum = 0.299f * background.R + 0.587f * background.G + 0.114f * background.B;
+            Color textColor = bgLum > 128f ? Color.Black : Color.White;
 
             using (var font = new Font("Segoe UI", 9f, FontStyle.Regular))
             {
@@ -271,10 +274,10 @@ namespace QuantumAnalyzer.ShellExtension.Rendering
                         float cx = x + legendRadius;
                         float cy = y + 8f;
 
-                        DrawAtomSphere(g, cx, cy, legendRadius, item.Color, 0f);
+                        DrawAtomSphere(g, cx, cy, legendRadius, item.Color, 0f, background);
                         x += (legendRadius * 2) + 6f;
 
-                        using (var textBrush = new SolidBrush(Color.FromArgb(230, 230, 230)))
+                        using (var textBrush = new SolidBrush(textColor))
                         {
                             g.DrawString(item.Name, font, textBrush, x, y);
                         }
@@ -293,14 +296,14 @@ namespace QuantumAnalyzer.ShellExtension.Rendering
         /// Fast flat-circle atom — used during drag for large molecules.
         /// Single FillEllipse replaces the multi-object PathGradientBrush pipeline.
         /// </summary>
-        private static void DrawAtomFlat(Graphics g, float cx, float cy, float r, Color cpk, float fogFactor)
+        internal static void DrawAtomFlat(Graphics g, float cx, float cy, float r, Color cpk, float fogFactor, Color background)
         {
             var rect = new RectangleF(cx - r, cy - r, r * 2, r * 2);
-            using (var brush = new SolidBrush(ApplyFog(cpk, fogFactor)))
+            using (var brush = new SolidBrush(ApplyFog(cpk, fogFactor, background)))
                 g.FillEllipse(brush, rect);
         }
 
-        private static void DrawAtomSphere(Graphics g, float cx, float cy, float r, Color cpk, float fogFactor)
+        internal static void DrawAtomSphere(Graphics g, float cx, float cy, float r, Color cpk, float fogFactor, Color background)
         {
             var rect = new RectangleF(cx - r, cy - r, r * 2, r * 2);
 
@@ -311,8 +314,8 @@ namespace QuantumAnalyzer.ShellExtension.Rendering
                 {
                     // Highlight offset: upper-left of centre
                     brush.CenterPoint  = new PointF(cx - r * 0.28f, cy - r * 0.28f);
-                    brush.CenterColor  = ApplyFog(Lighten(cpk, 0.72f), fogFactor);
-                    brush.SurroundColors = new Color[] { ApplyFog(Darken(cpk, 0.60f), fogFactor) };
+                    brush.CenterColor  = ApplyFog(Lighten(cpk, 0.72f), fogFactor, background);
+                    brush.SurroundColors = new Color[] { ApplyFog(Darken(cpk, 0.60f), fogFactor, background) };
                     g.FillPath(brush, path);
                 }
             }
@@ -385,17 +388,17 @@ namespace QuantumAnalyzer.ShellExtension.Rendering
         // Colour utilities
         // ──────────────────────────────────────────────────────────────────
 
-        private static Color ApplyFog(Color c, float fogFactor)
+        internal static Color ApplyFog(Color c, float fogFactor, Color background)
         {
             const float FogStrength = 0.60f;
             float t = Math.Min(1f, fogFactor * FogStrength);
             return Color.FromArgb(c.A,
-                (int)(c.R * (1 - t) + Background.R * t),
-                (int)(c.G * (1 - t) + Background.G * t),
-                (int)(c.B * (1 - t) + Background.B * t));
+                (int)(c.R * (1 - t) + background.R * t),
+                (int)(c.G * (1 - t) + background.G * t),
+                (int)(c.B * (1 - t) + background.B * t));
         }
 
-        private static Color Lighten(Color c, float amount)
+        internal static Color Lighten(Color c, float amount)
         {
             return Color.FromArgb(
                 c.A,
@@ -404,7 +407,7 @@ namespace QuantumAnalyzer.ShellExtension.Rendering
                 Math.Min(255, (int)(c.B + (255 - c.B) * amount)));
         }
 
-        private static Color Darken(Color c, float amount)
+        internal static Color Darken(Color c, float amount)
         {
             return Color.FromArgb(
                 c.A,

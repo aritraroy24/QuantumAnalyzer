@@ -15,12 +15,12 @@ $InstallDir  = Join-Path $env:ProgramFiles "QuantumAnalyzer"
 $DllDest     = Join-Path $InstallDir "QuantumAnalyzer.ShellExtension.dll"
 $RegAsm      = Join-Path $env:SystemRoot "Microsoft.NET\Framework64\v4.0.30319\regasm.exe"
 $ApprovedKey = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Shell Extensions\Approved"
-$ExtGuidThumb = "{6F3A1234-5678-4ABC-8DEF-1A2B3C4D5E6F}"
-$ExtGuidTip   = "{7E4B2345-6789-4BCD-9EF0-2B3C4D5E6F7A}"
-$ExtGuidPrev  = "{8D5C3456-789A-4CDE-AEF1-3C4D5E6F7A8B}"
-$ExtGuidMenu  = "{9E6D4567-89AB-4DEF-B0F1-4D5E6F7A8B9C}"
+$ExtGuidThumb    = "{6F3A1234-5678-4ABC-8DEF-1A2B3C4D5E6F}"
+$ExtGuidTip      = "{7E4B2345-6789-4BCD-9EF0-2B3C4D5E6F7A}"
+$ExtGuidPrev     = "{8D5C3456-789A-4CDE-AEF1-3C4D5E6F7A8B}"
+$ExtGuidMenu     = "{9E6D4567-89AB-4DEF-B0F1-4D5E6F7A8B9C}"
 
-$Extensions = @('.log', '.out', '.gjf', '.com', '.inp', '.xyz')
+$Extensions = @('.log', '.out', '.gjf', '.com', '.inp', '.xyz', '.cube')
 
 $IID_Thumbnail = "{E357FCCD-A995-4576-B01F-234630154E96}"
 $IID_InfoTip   = "{00021500-0000-0000-C000-000000000046}"
@@ -48,6 +48,9 @@ function Unregister-ShellexEntries {
             Remove-Item -Path "HKCR:\$progId\shellex\ContextMenuHandlers\QuantumAnalyzer" -Recurse -Force -ErrorAction SilentlyContinue
         }
     }
+
+    # Remove SystemFileAssociations context menu entries for .cube
+    Remove-Item -Path "HKCR:\SystemFileAssociations\.cube\shellex\ContextMenuHandlers\QuantumAnalyzer" -Recurse -Force -ErrorAction SilentlyContinue
 
     $phKey = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\PreviewHandlers"
     Remove-ItemProperty -Path $phKey -Name $ExtGuidPrev -Force -ErrorAction SilentlyContinue

@@ -23,11 +23,11 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
     [COMServerAssociation(AssociationType.ClassOfExtension, ".com")]
     [COMServerAssociation(AssociationType.ClassOfExtension, ".inp")]
     [COMServerAssociation(AssociationType.ClassOfExtension, ".xyz")]
+    [COMServerAssociation(AssociationType.ClassOfExtension, ".cube")]
     public class QuantumPreviewHandler : SharpPreviewHandler
     {
         protected override PreviewHandlerControl DoPreview()
         {
-            var control = new MoleculePreviewControl();
             try
             {
                 string filePath = SelectedFilePath;
@@ -37,20 +37,34 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
                     string ext      = Path.GetExtension(filePath).ToLowerInvariant();
                     string fileName = Path.GetFileName(filePath);
                     string label    = BuildDisplayLabel(fileName, ext, result?.Summary);
+
+                    // Route .cube files (or any result with volumetric data) to CubePreviewControl
+                    if (result?.VolumetricData != null)
+                    {
+                        var cubeCtrl = new CubePreviewControl();
+                        cubeCtrl.SetData(result.Molecule, result.VolumetricData, label);
+                        return cubeCtrl;
+                    }
+
+                    var control = new MoleculePreviewControl();
                     control.SetMolecule(result?.Molecule, label);
+                    return control;
                 }
             }
             catch
             {
                 // Fail silently — return blank control
             }
-            return control;
+            return new MoleculePreviewControl();
         }
 
         private static string BuildDisplayLabel(string fileName, string ext, QuantumSummary summary)
         {
             if (ext == ".xyz")
                 return $"[{fileName}] - XYZ Structure";
+
+            if (ext == ".cube")
+                return $"[{fileName}] - Cube File";
 
             string s = summary == null ? string.Empty
                 : $"{summary.Software}  {summary.Method ?? "?"}/{summary.BasisSet ?? "?"}  {summary.CalcType ?? ""}  {summary.Spin ?? ""}".Trim();

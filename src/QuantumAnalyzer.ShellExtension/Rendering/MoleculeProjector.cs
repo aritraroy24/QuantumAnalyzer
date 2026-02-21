@@ -30,6 +30,49 @@ namespace QuantumAnalyzer.ShellExtension.Rendering
         }
 
         /// <summary>
+        /// Returns the effective 3×3 rotation matrix that maps centred world-space coordinates
+        /// to screen-space (X right, Y up-positive, Z toward viewer), combining the PCA step
+        /// with the user rotation.  Triangle vertices can be projected by multiplying this
+        /// matrix onto <c>v - centroid</c> (flip Y for screen).
+        /// </summary>
+        internal static float[,] GetCombinedRotation(Molecule molecule, float[,] userRot)
+        {
+            var atoms = molecule.Atoms;
+            int n = atoms.Count;
+            if (n == 0) return userRot;
+
+            double cx = 0, cy = 0, cz = 0;
+            foreach (var a in atoms) { cx += a.X; cy += a.Y; cz += a.Z; }
+            cx /= n; cy /= n; cz /= n;
+
+            double[][] pts = new double[n][];
+            for (int i = 0; i < n; i++)
+                pts[i] = new double[] { atoms[i].X - cx, atoms[i].Y - cy, atoms[i].Z - cz };
+
+            double[,] cov = Covariance(pts);
+            Jacobi3x3(cov, out double[] eigenvalues, out double[,] eigenvectors);
+            int[] order = SortDescending(eigenvalues);
+
+            // PCA basis as 3×3 float matrix: rows are screen-X, screen-Y, depth axes
+            var pca = new float[3, 3];
+            for (int j = 0; j < 3; j++)
+            {
+                double[] col = GetColumn(eigenvectors, order[j]);
+                pca[j, 0] = (float)col[0];
+                pca[j, 1] = (float)col[1];
+                pca[j, 2] = (float)col[2];
+            }
+
+            // Combined = userRot @ PCA  (3×3 matrix multiply)
+            var combined = new float[3, 3];
+            for (int i = 0; i < 3; i++)
+                for (int k = 0; k < 3; k++)
+                    for (int j = 0; j < 3; j++)
+                        combined[i, j] += userRot[i, k] * pca[k, j];
+            return combined;
+        }
+
+        /// <summary>
         /// Returns a projection with an explicit 3×3 rotation matrix applied after PCA.
         /// The matrix operates in PCA-aligned coordinates (X = max variance, Y = 2nd, Z = depth).
         /// Used by the arcball-based interactive preview.

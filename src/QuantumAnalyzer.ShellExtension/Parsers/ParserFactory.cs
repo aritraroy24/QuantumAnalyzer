@@ -14,6 +14,7 @@ namespace QuantumAnalyzer.ShellExtension.Parsers
             new GjfParser(),
             new OrcaInputParser(),
             new XyzParser(),
+            new CubeParser(),
         };
 
         /// <summary>

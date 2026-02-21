@@ -33,17 +33,17 @@ $RegAsm = Join-Path $env:SystemRoot "Microsoft.NET\Framework64\v4.0.30319\regasm
 
 # Shell Extensions Approved registry key (required for non-admin shell extensions)
 $ApprovedKey   = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Shell Extensions\Approved"
-$ExtGuidThumb  = "{6F3A1234-5678-4ABC-8DEF-1A2B3C4D5E6F}"
-$ExtGuidTip    = "{7E4B2345-6789-4BCD-9EF0-2B3C4D5E6F7A}"
-$ExtGuidPrev   = "{8D5C3456-789A-4CDE-AEF1-3C4D5E6F7A8B}"
-$ExtGuidMenu   = "{9E6D4567-89AB-4DEF-B0F1-4D5E6F7A8B9C}"
+$ExtGuidThumb    = "{6F3A1234-5678-4ABC-8DEF-1A2B3C4D5E6F}"
+$ExtGuidTip      = "{7E4B2345-6789-4BCD-9EF0-2B3C4D5E6F7A}"
+$ExtGuidPrev     = "{8D5C3456-789A-4CDE-AEF1-3C4D5E6F7A8B}"
+$ExtGuidMenu     = "{9E6D4567-89AB-4DEF-B0F1-4D5E6F7A8B9C}"
 
 # Shell-interface GUIDs (Windows-defined, do not change)
 $IID_Thumbnail = "{E357FCCD-A995-4576-B01F-234630154E96}"
 $IID_InfoTip   = "{00021500-0000-0000-C000-000000000046}"
 $IID_Preview   = "{8895b1c6-b41f-4c1c-a562-0d564250836f}"
 
-$Extensions = @('.log', '.out', '.gjf', '.com', '.inp', '.xyz')
+$Extensions = @('.log', '.out', '.gjf', '.com', '.inp', '.xyz', '.cube')
 if (-not (Test-Path 'HKCR:')) {
     $null = New-PSDrive -Name HKCR -PSProvider Registry -Root HKEY_CLASSES_ROOT
 }
@@ -73,7 +73,7 @@ function Register-ShellexEntries {
         $key.SetValue('', $ExtGuidPrev)
     }
 
-    # Context Menu Handler — output files only (.log / .out)
+    # Context Menu Handler — output files (.log / .out) and cube files (.cube)
     # Registered separately so it does not appear on input / structure files.
     #
     # Windows Explorer resolves ContextMenuHandlers through the ProgID chain.
@@ -112,6 +112,35 @@ function Register-ShellexEntries {
         }
     }
 
+    # Cube context menu (.cube) — same 4-path strategy, same GUID as .log/.out handler
+    foreach ($path in @('.cube')) {
+        # 1. Extension shellex key
+        $key = New-Item -Path "HKCR:\$path\shellex\ContextMenuHandlers\QuantumAnalyzer" -Force
+        $key.SetValue('', $ExtGuidMenu)
+
+        # 2. SystemFileAssociations
+        $key = New-Item -Path "HKCR:\SystemFileAssociations\$path\shellex\ContextMenuHandlers\QuantumAnalyzer" -Force
+        $key.SetValue('', $ExtGuidMenu)
+
+        # 3. Default ProgID
+        $progId = try { (Get-Item "HKCR:\$path").GetValue('') } catch { $null }
+        if ($progId -and (Test-Path "HKCR:\$progId")) {
+            $key = New-Item -Path "HKCR:\$progId\shellex\ContextMenuHandlers\QuantumAnalyzer" -Force
+            $key.SetValue('', $ExtGuidMenu)
+        }
+
+        # 4. OpenWithProgids
+        $owpPath = "HKCR:\$path\OpenWithProgids"
+        if (Test-Path $owpPath) {
+            foreach ($progIdName in (Get-Item -Path $owpPath).GetValueNames()) {
+                if ($progIdName -and (Test-Path "HKCR:\$progIdName")) {
+                    $key = New-Item -Path "HKCR:\$progIdName\shellex\ContextMenuHandlers\QuantumAnalyzer" -Force
+                    $key.SetValue('', $ExtGuidMenu)
+                }
+            }
+        }
+    }
+
     # Preview handlers must also appear in this global list
     $phKey = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\PreviewHandlers"
     if (-not (Test-Path $phKey)) { $null = New-Item -Path $phKey -Force }
@@ -130,7 +159,7 @@ function Unregister-ShellexEntries {
     }
 
     # Remove SystemFileAssociations context menu entries
-    foreach ($path in @('.log', '.out')) {
+    foreach ($path in @('.log', '.out', '.cube')) {
         Remove-Item -Path "HKCR:\SystemFileAssociations\$path\shellex\ContextMenuHandlers\QuantumAnalyzer" -Recurse -Force -ErrorAction SilentlyContinue
     }
 
@@ -250,10 +279,10 @@ Register-ShellexEntries -Exts $Extensions
 # ---------- Approve shell extensions -----------------------------------------
 
 Write-Host "Approving shell extensions in registry..." -ForegroundColor Cyan
-Set-ItemProperty -Path $ApprovedKey -Name $ExtGuidThumb -Value "QuantumAnalyzer Thumbnail Provider"
-Set-ItemProperty -Path $ApprovedKey -Name $ExtGuidTip   -Value "QuantumAnalyzer Info Tip Handler"
-Set-ItemProperty -Path $ApprovedKey -Name $ExtGuidPrev  -Value "QuantumAnalyzer Preview Handler"
-Set-ItemProperty -Path $ApprovedKey -Name $ExtGuidMenu  -Value "QuantumAnalyzer Context Menu"
+Set-ItemProperty -Path $ApprovedKey -Name $ExtGuidThumb    -Value "QuantumAnalyzer Thumbnail Provider"
+Set-ItemProperty -Path $ApprovedKey -Name $ExtGuidTip      -Value "QuantumAnalyzer Info Tip Handler"
+Set-ItemProperty -Path $ApprovedKey -Name $ExtGuidPrev     -Value "QuantumAnalyzer Preview Handler"
+Set-ItemProperty -Path $ApprovedKey -Name $ExtGuidMenu     -Value "QuantumAnalyzer Context Menu"
 
 # ---------- Restart Explorer -------------------------------------------------
 
@@ -271,11 +300,14 @@ $checks = @(
     @{ Label = "COM CLSID (context menu)";         Path = "HKCR:\CLSID\$ExtGuidMenu" },
     @{ Label = ".log shellex context menu";         Path = "HKCR:\.log\shellex\ContextMenuHandlers\QuantumAnalyzer" },
     @{ Label = ".out shellex context menu";         Path = "HKCR:\.out\shellex\ContextMenuHandlers\QuantumAnalyzer" },
+    @{ Label = ".cube shellex context menu";        Path = "HKCR:\.cube\shellex\ContextMenuHandlers\QuantumAnalyzer" },
     @{ Label = "SFA .log context menu";             Path = "HKCR:\SystemFileAssociations\.log\shellex\ContextMenuHandlers\QuantumAnalyzer" },
     @{ Label = "SFA .out context menu";             Path = "HKCR:\SystemFileAssociations\.out\shellex\ContextMenuHandlers\QuantumAnalyzer" },
+    @{ Label = "SFA .cube context menu";            Path = "HKCR:\SystemFileAssociations\.cube\shellex\ContextMenuHandlers\QuantumAnalyzer" },
     @{ Label = "Approved (context menu)";           Path = $ApprovedKey; ValueName = $ExtGuidMenu },
     @{ Label = ".log shellex preview";              Path = "HKCR:\.log\shellex\$IID_Preview" },
-    @{ Label = ".out shellex preview";              Path = "HKCR:\.out\shellex\$IID_Preview" }
+    @{ Label = ".out shellex preview";              Path = "HKCR:\.out\shellex\$IID_Preview" },
+    @{ Label = ".cube shellex preview";             Path = "HKCR:\.cube\shellex\$IID_Preview" }
 )
 foreach ($c in $checks) {
     $ok = if ($c.ContainsKey('ValueName')) {
@@ -289,4 +321,4 @@ foreach ($c in $checks) {
 }
 
 Write-Host ""
-Write-Host "On Windows 11: right-click the file then choose 'Show more options' to see 'Save Summary'." -ForegroundColor DarkCyan
+Write-Host "On Windows 11: right-click then choose 'Show more options' to see 'Save Summary' (.log/.out) or 'Save Visualization' (.cube)." -ForegroundColor DarkCyan
