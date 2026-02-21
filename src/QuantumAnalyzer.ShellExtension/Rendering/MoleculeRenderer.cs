@@ -34,11 +34,13 @@ namespace QuantumAnalyzer.ShellExtension.Rendering
 
         /// <summary>
         /// Render with an explicit 3×3 rotation matrix — used by the arcball interactive preview.
+        /// <paramref name="lowQuality"/> skips gradient spheres and uses flat circles instead,
+        /// giving a large speed-up during mouse-drag on large molecules.
         /// </summary>
-        public static Bitmap RenderWithMatrix(Molecule molecule, float[,] rotMatrix, int width, int height, float? fixedScale = null)
+        public static Bitmap RenderWithMatrix(Molecule molecule, float[,] rotMatrix, int width, int height, float? fixedScale = null, bool lowQuality = false)
         {
             var projected = MoleculeProjector.ProjectWithMatrix(molecule, rotMatrix);
-            return Render(molecule, projected, width, height, fixedScale);
+            return Render(molecule, projected, width, height, fixedScale, lowQuality);
         }
 
         /// <summary>
@@ -75,7 +77,7 @@ namespace QuantumAnalyzer.ShellExtension.Rendering
         // ──────────────────────────────────────────────────────────────────
 
         private static Bitmap Render(Molecule molecule, ProjectedAtom[] projected, int width, int height,
-                                     float? fixedScale = null)
+                                     float? fixedScale = null, bool lowQuality = false)
         {
             var bmp = new Bitmap(width, height);
             using (var g = Graphics.FromImage(bmp))
@@ -163,7 +165,11 @@ namespace QuantumAnalyzer.ShellExtension.Rendering
                             float r  = baseRadius * (float)ElementData.GetCovalentRadius(atom.Element) / 0.77f;
                             r = Math.Max(r, baseRadius * 0.4f);
                             r = Math.Min(r, baseRadius * 2.5f);
-                            DrawAtomSphere(g, sx, sy, r, ElementData.GetCpkColor(atom.Element), fogFactor);
+                            Color cpk = ElementData.GetCpkColor(atom.Element);
+                            if (lowQuality)
+                                DrawAtomFlat(g, sx, sy, r, cpk, fogFactor);
+                            else
+                                DrawAtomSphere(g, sx, sy, r, cpk, fogFactor);
                         }
                         else
                         {
@@ -205,6 +211,17 @@ namespace QuantumAnalyzer.ShellExtension.Rendering
         // ──────────────────────────────────────────────────────────────────
         // Atom sphere (PathGradientBrush for glossy 3D appearance)
         // ──────────────────────────────────────────────────────────────────
+
+        /// <summary>
+        /// Fast flat-circle atom — used during drag for large molecules.
+        /// Single FillEllipse replaces the multi-object PathGradientBrush pipeline.
+        /// </summary>
+        private static void DrawAtomFlat(Graphics g, float cx, float cy, float r, Color cpk, float fogFactor)
+        {
+            var rect = new RectangleF(cx - r, cy - r, r * 2, r * 2);
+            using (var brush = new SolidBrush(ApplyFog(cpk, fogFactor)))
+                g.FillEllipse(brush, rect);
+        }
 
         private static void DrawAtomSphere(Graphics g, float cx, float cy, float r, Color cpk, float fogFactor)
         {

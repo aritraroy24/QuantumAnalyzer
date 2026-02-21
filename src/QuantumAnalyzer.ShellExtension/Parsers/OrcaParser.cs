@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Text;
 using System.Text.RegularExpressions;
 using QuantumAnalyzer.ShellExtension.Chemistry;
 using QuantumAnalyzer.ShellExtension.Models;
@@ -10,6 +11,23 @@ namespace QuantumAnalyzer.ShellExtension.Parsers
     public class OrcaParser : IQuantumParser
     {
         private const double HartreeToEv = 27.211385;
+
+        // ── Large-file optimisation ───────────────────────────────────────────────
+        // ORCA optimization/frequency jobs grow to 100+ MB because every SCF cycle
+        // and every gradient step is printed in full.  Everything we actually need
+        // for the preview / thumbnail is either at the very start of the file
+        // (input block → method/basis/charge/mult) or at the very end
+        // (final geometry, final energy, thermochemistry, orbital energies,
+        // termination flag, imaginary frequencies).
+        //
+        // Strategy: for files larger than LargeFileThreshold, read only the first
+        // HeadLineCount lines and the last TailBytes, concatenate them, and run the
+        // normal ParseFull() parser on the result.  I/O drops from ~100 MB to ~4 MB.
+        private const long LargeFileThreshold = 5L * 1024 * 1024;  // 5 MB
+        private const int  HeadLineCount      = 400;                // lines from start (ORCA 6.x has ~220 lines of preamble before INPUT FILE)
+        private const long TailBytes          = 4L * 1024 * 1024;  // 4 MB from end
+
+        // ──────────────────────────────────────────────────────────────────────────
 
         public bool CanParse(string[] firstLines)
         {
@@ -25,6 +43,223 @@ namespace QuantumAnalyzer.ShellExtension.Parsers
         }
 
         public ParseResult Parse(TextReader reader)
+        {
+            // Route large seekable files through the head+tail optimisation.
+            if (reader is StreamReader sr &&
+                sr.BaseStream.CanSeek &&
+                sr.BaseStream.Length > LargeFileThreshold)
+            {
+                return ParseLargeFile(sr);
+            }
+            return ParseFull(reader);
+        }
+
+        // ── Head + tail optimisation ──────────────────────────────────────────────
+        // Reads the first HeadLineCount lines, then does a fast backward chunk scan
+        // to locate the last GEOMETRY OPTIMIZATION CYCLE (gives hasOpt + final coords),
+        // then reads the last TailBytes for energy/thermo/orbitals/freq/termination.
+        // I/O drops from ~100 MB to ~4 MB even for large OPT+FREQ jobs.
+        private ParseResult ParseLargeFile(StreamReader sr)
+        {
+            var stream = sr.BaseStream;
+            var sb = new StringBuilder();
+
+            // Head ────────────────────────────────────────────────────────────────
+            stream.Seek(0, SeekOrigin.Begin);
+            sr.DiscardBufferedData();
+            for (int i = 0; i < HeadLineCount; i++)
+            {
+                string ln = sr.ReadLine();
+                if (ln == null) break;
+                sb.AppendLine(ln);
+            }
+
+            // Find last GEOMETRY OPTIMIZATION CYCLE (backward chunk scan) ────────
+            // GEOMETRY OPTIMIZATION CYCLE lives in the middle of the file and is
+            // missed by the tail window.  Backward scan stops as soon as found
+            // (typically 1-2 chunks from the end for OPT+FREQ jobs).
+            long optCyclePos = FindLastByteOffset(stream, "GEOMETRY OPTIMIZATION CYCLE");
+            List<string> optCoordLines = null;
+            if (optCyclePos >= 0)
+                optCoordLines = ReadOptCoordBlock(stream, optCyclePos);
+
+            // Tail ────────────────────────────────────────────────────────────────
+            long tailStart = stream.Length - TailBytes; // > 0: guaranteed by threshold check
+            stream.Seek(tailStart, SeekOrigin.Begin);
+            sr.DiscardBufferedData();
+            sr.ReadLine(); // discard the partial line at the seek boundary
+
+            string tl;
+            while ((tl = sr.ReadLine()) != null)
+                sb.AppendLine(tl);
+
+            // Parse the combined head+tail slice with the normal parser
+            ParseResult result;
+            using (var combined = new StringReader(sb.ToString()))
+                result = ParseFull(combined);
+
+            if (result == null) return null;
+
+            // Apply OPT overrides ─────────────────────────────────────────────────
+            if (optCyclePos >= 0)
+            {
+                // GEOMETRY OPTIMIZATION CYCLE is not in the tail, so ParseFull
+                // will have set CalcType to SP or FREQ.  Correct it here.
+                if (result.Summary.CalcType == "SP")
+                    result.Summary.CalcType = "OPT";
+                else if (result.Summary.CalcType == "FREQ")
+                    result.Summary.CalcType = "OPT+FREQ";
+
+                // Override the molecule with coordinates from the last opt cycle.
+                // The tail window may not contain CARTESIAN COORDINATES (ANGSTROEM)
+                // at all (e.g. when the freq section dominates the last 4 MB).
+                if (optCoordLines != null && optCoordLines.Count > 0)
+                {
+                    var molecule = new Molecule();
+                    foreach (string ol in optCoordLines)
+                    {
+                        string[] parts = ol.Trim().Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+                        if (parts.Length >= 4 &&
+                            double.TryParse(parts[1], System.Globalization.NumberStyles.Float,
+                                            System.Globalization.CultureInfo.InvariantCulture, out double x) &&
+                            double.TryParse(parts[2], System.Globalization.NumberStyles.Float,
+                                            System.Globalization.CultureInfo.InvariantCulture, out double y) &&
+                            double.TryParse(parts[3], System.Globalization.NumberStyles.Float,
+                                            System.Globalization.CultureInfo.InvariantCulture, out double z))
+                        {
+                            molecule.Atoms.Add(new Atom(parts[0], x, y, z));
+                        }
+                    }
+                    if (molecule.Atoms.Count > 0)
+                    {
+                        molecule.Bonds = BondDetector.Detect(molecule.Atoms);
+                        var counts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+                        foreach (var atom in molecule.Atoms)
+                        {
+                            if (counts.ContainsKey(atom.Element)) counts[atom.Element]++;
+                            else counts[atom.Element] = 1;
+                        }
+                        result.Molecule = molecule;
+                        result.Summary.AtomCounts = counts;
+                    }
+                }
+            }
+
+            return result;
+        }
+
+        // ── Backward chunk scan ───────────────────────────────────────────────────
+        // Scans the stream right-to-left in 64 KB chunks to find the byte offset of
+        // the last occurrence of marker (UTF-8, exact case).
+        // An overlap of (markerLen - 1) bytes is carried between adjacent chunks so
+        // that a match is never missed at a chunk boundary.
+        // Returns -1 if not found.  No external dependencies required.
+        private static long FindLastByteOffset(Stream stream, string marker)
+        {
+            byte[] pat = Encoding.UTF8.GetBytes(marker);
+            if (pat.Length == 0) return -1;
+
+            int overlap = pat.Length - 1;
+            const int chunkSize = 65536; // 64 KB
+            byte[] buffer = new byte[chunkSize + overlap];
+            byte[] rightOverlapBuf = overlap > 0 ? new byte[overlap] : null;
+            int rightOverlapLen = 0;
+
+            long chunkRight = stream.Length;
+
+            while (chunkRight > 0)
+            {
+                long chunkLeft = Math.Max(0L, chunkRight - chunkSize);
+                int mainLen = (int)(chunkRight - chunkLeft);
+
+                stream.Seek(chunkLeft, SeekOrigin.Begin);
+                int bytesRead = 0;
+                while (bytesRead < mainLen)
+                {
+                    int n = stream.Read(buffer, bytesRead, mainLen - bytesRead);
+                    if (n == 0) break;
+                    bytesRead += n;
+                }
+
+                // Append bytes saved from the chunk to our right so cross-boundary matches are caught
+                if (rightOverlapLen > 0)
+                    Buffer.BlockCopy(rightOverlapBuf, 0, buffer, bytesRead, rightOverlapLen);
+
+                int bufLen = bytesRead + rightOverlapLen;
+
+                // Walk right-to-left; only count a match whose START is within [0, mainLen)
+                // so we never double-report a match already found from the right chunk.
+                for (int i = bufLen - pat.Length; i >= 0; i--)
+                {
+                    if (i >= mainLen) continue; // in right-overlap territory → skip
+
+                    bool found = true;
+                    for (int j = 0; j < pat.Length; j++)
+                    {
+                        if (buffer[i + j] != pat[j]) { found = false; break; }
+                    }
+                    if (found) return chunkLeft + i;
+                }
+
+                // Save the leftmost bytes of this chunk as right-overlap for the next (leftward) chunk
+                rightOverlapLen = Math.Min(overlap, bytesRead);
+                if (rightOverlapLen > 0)
+                    Buffer.BlockCopy(buffer, 0, rightOverlapBuf, 0, rightOverlapLen);
+
+                chunkRight = chunkLeft;
+            }
+
+            return -1;
+        }
+
+        // ── Read coordinate block following a GEOMETRY OPTIMIZATION CYCLE ─────────
+        // Seeks to fromOffset, then scans forward for "CARTESIAN COORDINATES (ANGSTROEM)"
+        // and collects atom lines until "CARTESIAN COORDINATES (A.U.)" or a blank line.
+        private static List<string> ReadOptCoordBlock(Stream stream, long fromOffset)
+        {
+            const int MaxScanLines = 500; // guard against runaway reads
+            stream.Seek(fromOffset, SeekOrigin.Begin);
+
+            var coords = new List<string>();
+            bool inCoord = false;
+            int skipLines = 0;
+
+            // leaveOpen: true so we don't close the underlying FileStream
+            using (var reader = new StreamReader(stream, Encoding.UTF8, false, 4096, true))
+            {
+                for (int i = 0; i < MaxScanLines; i++)
+                {
+                    string line = reader.ReadLine();
+                    if (line == null) break;
+
+                    if (!inCoord)
+                    {
+                        if (line.IndexOf("CARTESIAN COORDINATES (ANGSTROEM)", StringComparison.OrdinalIgnoreCase) >= 0)
+                        {
+                            inCoord = true;
+                            skipLines = 1; // skip the dashes line
+                        }
+                        continue;
+                    }
+
+                    if (skipLines > 0) { skipLines--; continue; }
+
+                    string trimmed = line.Trim();
+                    if (trimmed.IndexOf("CARTESIAN COORDINATES (A.U.)", StringComparison.OrdinalIgnoreCase) >= 0)
+                        break;
+                    if (string.IsNullOrWhiteSpace(trimmed))
+                        break;
+
+                    coords.Add(line);
+                }
+            }
+
+            return coords;
+        }
+
+        // ── Full line-by-line parse ───────────────────────────────────────────────
+        // Used directly for small files; called with the head+tail slice for large ones.
+        private ParseResult ParseFull(TextReader reader)
         {
             var summary = new QuantumSummary { Software = SoftwareType.Orca };
             var molecule = new Molecule();
@@ -51,7 +286,7 @@ namespace QuantumAnalyzer.ShellExtension.Parsers
             bool hasFreq = false;
             bool hasOpt  = false;
             bool normalTermination = false;
-            double? kBT = null;  // "Thermal Enthalpy correction" (kB*T), used to compute ThermalEnthalpy
+            double? kBT = null;
 
             string line;
             while ((line = reader.ReadLine()) != null)
@@ -60,11 +295,12 @@ namespace QuantumAnalyzer.ShellExtension.Parsers
 
                 // ── Detect calc type from section headers ──────────────
                 if (line.IndexOf("ORCA FREQUENCY CALCULATION", StringComparison.OrdinalIgnoreCase) >= 0)    hasFreq = true;
+                if (line.IndexOf("VIBRATIONAL FREQUENCIES",    StringComparison.OrdinalIgnoreCase) >= 0)    hasFreq = true;  // in tail when ORCA FREQUENCY CALCULATION header is not
                 if (line.IndexOf("GEOMETRY OPTIMIZATION CYCLE", StringComparison.OrdinalIgnoreCase) >= 0)   hasOpt  = true;
                 if (line.IndexOf("ORCA TERMINATED NORMALLY", StringComparison.OrdinalIgnoreCase) >= 0)      normalTermination = true;
 
                 // ── Input block (contains method/basis) ────────────────
-                if (trimmed.StartsWith("INPUT FILE", StringComparison.OrdinalIgnoreCase) || 
+                if (trimmed.StartsWith("INPUT FILE", StringComparison.OrdinalIgnoreCase) ||
                     line.IndexOf("Your calculation input:", StringComparison.OrdinalIgnoreCase) >= 0)
                     inInputBlock = true;
                 if (inInputBlock)
@@ -140,7 +376,6 @@ namespace QuantumAnalyzer.ShellExtension.Parsers
                 }
                 else if (summary.ElectronicEnergy == null)
                 {
-                    // Fallback for cases where FINAL SINGLE POINT ENERGY is not yet printed or formatted differently
                     var totalEnergy = Regex.Match(line, @"Total Energy\s+:\s+([-\d.]+)", RegexOptions.IgnoreCase);
                     if (totalEnergy.Success)
                     {
@@ -152,7 +387,7 @@ namespace QuantumAnalyzer.ShellExtension.Parsers
                 // ── Orbital energies ───────────────────────────────────
                 if (trimmed.Equals("ORBITAL ENERGIES", StringComparison.OrdinalIgnoreCase))
                 {
-                    inOrbitalEnergies  = true;
+                    inOrbitalEnergies   = true;
                     orbitalHeaderPassed = false;
                     orbitalLines = new List<string>();
                     continue;
@@ -161,7 +396,6 @@ namespace QuantumAnalyzer.ShellExtension.Parsers
                 {
                     if (trimmed.StartsWith("---") && !orbitalHeaderPassed) { orbitalHeaderPassed = true; continue; }
 
-                    // Exit only on the second dashes block or if we already have data and hit an empty line
                     if (trimmed.StartsWith("---") || (orbitalLines.Count > 0 && string.IsNullOrWhiteSpace(trimmed)))
                     {
                         inOrbitalEnergies = false;
@@ -187,7 +421,6 @@ namespace QuantumAnalyzer.ShellExtension.Parsers
                 // ── Thermochemistry ────────────────────────────────────
                 ParseThermoLine(line, summary);
 
-                // kBT: "Thermal Enthalpy correction       ...      0.00094421 Eh"
                 if (kBT == null &&
                     line.IndexOf("Thermal Enthalpy correction", StringComparison.OrdinalIgnoreCase) >= 0)
                 {
@@ -202,7 +435,6 @@ namespace QuantumAnalyzer.ShellExtension.Parsers
             summary.NormalTermination = normalTermination;
             summary.ImaginaryFreq = imagFreqCount;
 
-            // Derived thermo values
             if (summary.ElectronicEnergy.HasValue && summary.ZPE.HasValue)
                 summary.EE_ZPE = summary.ElectronicEnergy.Value + summary.ZPE.Value;
 
@@ -215,8 +447,6 @@ namespace QuantumAnalyzer.ShellExtension.Parsers
             else                  summary.CalcType = "SP";
 
             ParseInputBlock(inputLines, summary);
-
-            // HOMO / LUMO from orbital energies
             ParseOrbitalEnergies(orbitalLines, summary);
 
             // Build molecule from last coordinate block
@@ -225,7 +455,6 @@ namespace QuantumAnalyzer.ShellExtension.Parsers
                 foreach (string ol in lastCoordBlock)
                 {
                     string[] parts = ol.Trim().Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
-                    // Format: Element X Y Z
                     if (parts.Length >= 4 &&
                         double.TryParse(parts[1], System.Globalization.NumberStyles.Float,
                                         System.Globalization.CultureInfo.InvariantCulture, out double x) &&
@@ -267,7 +496,6 @@ namespace QuantumAnalyzer.ShellExtension.Parsers
                 string[] parts = tokens.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
                 if (parts.Length == 0) continue;
 
-                // Skip warning/error/notification lines (e.g. "! WARNING: SERIOUS PROBLEM")
                 string firstTok = parts[0].ToUpperInvariant();
                 if (firstTok == "WARNING" || firstTok == "ERROR" || firstTok == "NOTE"
                     || firstTok == "CAUTION" || firstTok == "***") continue;
@@ -276,13 +504,11 @@ namespace QuantumAnalyzer.ShellExtension.Parsers
                 {
                     var basisSets = new List<string>();
 
-                    // Handle "B3LYP/def2-TZVP" combined token
                     if (parts[0].Contains("/"))
                     {
                         var split = parts[0].Split('/');
                         s.Method = split[0].ToUpperInvariant();
                         basisSets.Add(split[1]);
-                        // Collect additional basis set tokens from remaining parts
                         for (int i = 1; i < parts.Length; i++)
                         {
                             if (!IsKeyword(parts[i]))
@@ -292,7 +518,6 @@ namespace QuantumAnalyzer.ShellExtension.Parsers
                     else
                     {
                         s.Method = parts[0].ToUpperInvariant();
-                        // Collect ALL non-keyword tokens after method as basis sets
                         for (int i = 1; i < parts.Length; i++)
                         {
                             if (!IsKeyword(parts[i]))
@@ -315,64 +540,26 @@ namespace QuantumAnalyzer.ShellExtension.Parsers
             string upper = tok.ToUpperInvariant();
             switch (upper)
             {
-                case "FREQ":
-                case "OPT":
-                case "SP":
-                case "TIGHTSCF":
-                case "VERYTIGHTSCF":
-                case "NORMALSCF":
-                case "LOOSESCF":
-                case "DEFGRID1":
-                case "DEFGRID2":
-                case "DEFGRID3":
-                case "RIJCOSX":
-                case "NORI":
-                case "RI":
-                case "LARGEPRINT":
-                case "MINIPRINT":
-                case "NOPRINT":
-                case "ENGRAD":
-                case "NUMGRAD":
-                case "NUMFREQ":
-                case "ANFREQ":
-                case "TIGHTOPT":
-                case "VERYTIGHTOPT":
-                case "SLOWCONV":
-                case "NBO":
-                case "NPA":
-                case "CONV":
-                case "NOCONV":
-                case "LEANSCF":
-                case "AODIIS":
-                case "SOSCF":
-                case "NOSOSCF":
-                case "KDIIS":
-                case "DIIS":
-                case "NRSCF":
-                case "D3":
-                case "D3BJ":
-                case "D4":
-                case "D3ZERO":
-                case "BOHRS":
-                case "UHF":
-                case "RHF":
-                case "ROHF":
-                case "UKS":
-                case "RKS":
-                case "ROKS":
-                case "MOREAD":
-                case "AUTOSTART":
-                case "NOAUTOSTART":
-                case "KEEPDENS":
-                case "NOFROZENCORE":
-                case "FROZENCORE":
-                case "CPCM":
-                case "SMD":
+                case "FREQ": case "OPT": case "SP":
+                case "TIGHTSCF": case "VERYTIGHTSCF": case "NORMALSCF": case "LOOSESCF":
+                case "DEFGRID1": case "DEFGRID2": case "DEFGRID3":
+                case "RIJCOSX": case "NORI": case "RI":
+                case "LARGEPRINT": case "MINIPRINT": case "NOPRINT":
+                case "ENGRAD": case "NUMGRAD": case "NUMFREQ": case "ANFREQ":
+                case "TIGHTOPT": case "VERYTIGHTOPT":
+                case "SLOWCONV": case "NBO": case "NPA": case "CONV": case "NOCONV":
+                case "LEANSCF": case "AODIIS": case "SOSCF": case "NOSOSCF":
+                case "KDIIS": case "DIIS": case "NRSCF":
+                case "D3": case "D3BJ": case "D4": case "D3ZERO":
+                case "BOHRS": case "UHF": case "RHF": case "ROHF":
+                case "UKS": case "RKS": case "ROKS":
+                case "MOREAD": case "AUTOSTART": case "NOAUTOSTART":
+                case "KEEPDENS": case "NOFROZENCORE": case "FROZENCORE":
+                case "CPCM": case "SMD":
                     return true;
                 default:
                     if (upper.StartsWith("GRID") || upper.StartsWith("AUX"))
                         return true;
-                    // Tokens starting with "NO" followed by uppercase (e.g. NoMulliken, NoLoewdin, NoPrintMOs)
                     if (upper.Length > 2 && upper.StartsWith("NO") && tok.Length > 2 && char.IsUpper(tok[2]))
                         return true;
                     return false;
@@ -381,11 +568,10 @@ namespace QuantumAnalyzer.ShellExtension.Parsers
 
         private static void ParseOrbitalEnergies(List<string> lines, QuantumSummary s)
         {
-            // Each line format: NO  OCC  E(Eh)  E(eV)
-            double lastOccEh    = double.NaN;
-            double firstVirtEh  = double.NaN;
-            int    lastOccNo    = 0;
-            bool   virtFound    = false;
+            double lastOccEh   = double.NaN;
+            double firstVirtEh = double.NaN;
+            int    lastOccNo   = 0;
+            bool   virtFound   = false;
 
             foreach (string line in lines)
             {
@@ -412,36 +598,22 @@ namespace QuantumAnalyzer.ShellExtension.Parsers
 
             if (!double.IsNaN(lastOccEh) && !double.IsNaN(firstVirtEh))
             {
-                s.HomoIndex    = lastOccNo + 1;   // 1-based
-                s.LumoIndex    = lastOccNo + 2;
-                s.HomoSpin     = "Alpha";
-                s.HomoLumoGap  = (firstVirtEh - lastOccEh) * HartreeToEv;
+                s.HomoIndex   = lastOccNo + 1;
+                s.LumoIndex   = lastOccNo + 2;
+                s.HomoSpin    = "Alpha";
+                s.HomoLumoGap = (firstVirtEh - lastOccEh) * HartreeToEv;
             }
         }
 
         private static void ParseThermoLine(string line, QuantumSummary s)
         {
-            // "Zero point energy                ...      0.21886874 Eh     137.34 kcal/mol"
-            TryParseEh(line, "Zero point energy",        v => s.ZPE           = v);
-
-            // "Total thermal correction                  0.02730438 Eh      17.13 kcal/mol"
-            // = thermal correction to energy (no ZPE), maps to Gaussian's ThermalEnergy
-            TryParseEh(line, "Total thermal correction", v => s.ThermalEnergy  = v);
-
-            // "G-E(el)                           ...      0.16520351 Eh    103.67 kcal/mol"
-            // = full Gibbs correction relative to E(el), maps to ThermalFreeEnergy
+            TryParseEh(line, "Zero point energy",        v => s.ZPE              = v);
+            TryParseEh(line, "Total thermal correction", v => s.ThermalEnergy    = v);
             TryParseEh(line, "G-E(el)",                  v => s.ThermalFreeEnergy = v);
+            TryParseEh(line, "Total thermal energy",     v => s.EE_Thermal       = v);
+            TryParseEh(line, "Total Enthalpy",           v => s.EE_Enthalpy      = v);
+            TryParseEh(line, "Final Gibbs free energy",  v => s.EE_FreeEnergy    = v);
 
-            // "Total thermal energy                  -2801.18355477 Eh"
-            TryParseEh(line, "Total thermal energy",     v => s.EE_Thermal    = v);
-
-            // "Total Enthalpy                    ...  -2801.18261056 Eh"
-            TryParseEh(line, "Total Enthalpy",           v => s.EE_Enthalpy   = v);
-
-            // "Final Gibbs free energy         ...  -2801.26452439 Eh"
-            TryParseEh(line, "Final Gibbs free energy",  v => s.EE_FreeEnergy = v);
-
-            // EThermal_kcal: second number on the "Total thermal correction" line (kcal/mol column)
             if (s.EThermal_kcal == null &&
                 line.IndexOf("Total thermal correction", StringComparison.OrdinalIgnoreCase) >= 0)
             {
@@ -452,8 +624,6 @@ namespace QuantumAnalyzer.ShellExtension.Parsers
                     s.EThermal_kcal = kcal;
             }
 
-            // Entropy: "Final entropy term                ...      0.08191383 Eh     51.40 kcal/mol"
-            // T*S in Eh → S in cal/mol·K (T = 298.15 K assumed)
             if (s.Entropy == null &&
                 line.IndexOf("Final entropy term", StringComparison.OrdinalIgnoreCase) >= 0)
             {
@@ -461,11 +631,10 @@ namespace QuantumAnalyzer.ShellExtension.Parsers
                 if (m.Success && double.TryParse(m.Value,
                         System.Globalization.NumberStyles.Float,
                         System.Globalization.CultureInfo.InvariantCulture, out double tSEh))
-                    s.Entropy = tSEh * 627509.47 / 298.15;   // Eh → cal/mol, divide by T(K)
+                    s.Entropy = tSEh * 627509.47 / 298.15;
             }
         }
 
-        // Uses (-?\d+\.\d+) so the ORCA "..." separator is never mistaken for a number
         private static void TryParseEh(string line, string key, Action<double> setter)
         {
             int idx = line.IndexOf(key, StringComparison.OrdinalIgnoreCase);

@@ -124,7 +124,7 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
             float[,] delta = ArcballRotation(_dragStartVec, cur);
             // Left-multiply: apply delta in current view space, on top of the base rotation
             _rotMatrix = MatMul3(delta, _dragBaseMatrix);
-            RenderFrame();
+            RenderFrame(lowQuality: true);  // flat atoms during drag — much faster for large molecules
         }
 
         private void OnPictureMouseUp(object sender, MouseEventArgs e)
@@ -133,10 +133,13 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
             _isDragging     = false;
             _picture.Cursor = Cursors.Default;
             if (_molecule != null && _molecule.HasGeometry)
+            {
+                RenderFrame();      // restore full glossy quality on release
                 _timer.Start();
+            }
         }
 
-        private void RenderFrame()
+        private void RenderFrame(bool lowQuality = false)
         {
             if (_molecule == null || !_molecule.HasGeometry) return;
             int w = Math.Max(_picture.Width,  64);
@@ -144,7 +147,7 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
             try
             {
                 float? scale = _fixedScale > 0f ? _fixedScale : (float?)null;
-                var bmp = MoleculeRenderer.RenderWithMatrix(_molecule, _rotMatrix, w, h, scale);
+                var bmp = MoleculeRenderer.RenderWithMatrix(_molecule, _rotMatrix, w, h, scale, lowQuality);
                 var old = _picture.Image;
                 _picture.Image = bmp;
                 old?.Dispose();
