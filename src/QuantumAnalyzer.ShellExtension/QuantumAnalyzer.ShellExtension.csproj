@@ -1,0 +1,48 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net48</TargetFramework>
+    <Platforms>x64</Platforms>
+    <PlatformTarget>x64</PlatformTarget>
+    <OutputType>Library</OutputType>
+    <AssemblyName>QuantumAnalyzer.ShellExtension</AssemblyName>
+    <RootNamespace>QuantumAnalyzer.ShellExtension</RootNamespace>
+    <ProjectGuid>{2A3B4C5D-6E7F-4091-A2B3-C4D5E6F70123}</ProjectGuid>
+    <AssemblyVersion>1.0.0.0</AssemblyVersion>
+    <FileVersion>1.0.0.0</FileVersion>
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>disable</Nullable>
+    <LangVersion>7.3</LangVersion>
+    <!-- Prevent SDK from auto-generating attributes that conflict with AssemblyInfo.cs -->
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <!-- Required for COM registration via regasm /codebase -->
+    <AllowUnsafeBlocks>false</AllowUnsafeBlocks>
+    <Optimize Condition="'$(Configuration)'=='Release'">true</Optimize>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)'=='Debug'">
+    <DefineConstants>DEBUG;TRACE</DefineConstants>
+    <DebugType>full</DebugType>
+    <DebugSymbols>true</DebugSymbols>
+    <Optimize>false</Optimize>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)'=='Release'">
+    <DefineConstants>TRACE</DefineConstants>
+    <DebugType>pdbonly</DebugType>
+    <DebugSymbols>true</DebugSymbols>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- SharpShell: simplifies COM shell extension boilerplate -->
+    <PackageReference Include="SharpShell" Version="2.7.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="..\assets\save-icon.png">
+      <Link>Resources\save-icon.png</Link>
+      <LogicalName>QuantumAnalyzer.ShellExtension.Resources.save-icon.png</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
+
+</Project>

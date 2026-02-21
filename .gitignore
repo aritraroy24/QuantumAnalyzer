@@ -1,0 +1,7 @@
+tasks/
+changes.md
+CLAUDE.md
+summary.md
+.vs/
+src/QuantumAnalyzer.ShellExtension/obj/
+src/QuantumAnalyzer.ShellExtension/bin/
