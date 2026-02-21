@@ -195,10 +195,13 @@ namespace QuantumAnalyzer.ShellExtension.Rendering
                                 float rA = Math.Max(baseRadius * 0.4f, Math.Min(baseRadius * (float)ElementData.GetCovalentRadius(atomA.Element) / 0.77f, baseRadius * 2.5f));
                                 float rB = Math.Max(baseRadius * 0.4f, Math.Min(baseRadius * (float)ElementData.GetCovalentRadius(atomB.Element) / 0.77f, baseRadius * 2.5f));
 
-                                bondPen.Color = ApplyFog(Color.FromArgb(180, 180, 180), fogFactor);
-                                g.DrawLine(bondPen,
-                                    ax + nx * rA, ay + ny * rA,
-                                    bx - nx * rB, by - ny * rB);
+                                if (len > rA + rB)
+                                {
+                                    bondPen.Color = ApplyFog(Color.FromArgb(180, 180, 180), fogFactor);
+                                    g.DrawLine(bondPen,
+                                        ax + nx * rA, ay + ny * rA,
+                                        bx - nx * rB, by - ny * rB);
+                                }
                             }
                         }
                     }
