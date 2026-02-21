@@ -39,9 +39,9 @@
   </ItemGroup>
 
   <ItemGroup>
-    <EmbeddedResource Include="..\assets\save-icon.png">
-      <Link>Resources\save-icon.png</Link>
-      <LogicalName>QuantumAnalyzer.ShellExtension.Resources.save-icon.png</LogicalName>
+    <EmbeddedResource Include="..\assets\qa-icon.png">
+      <Link>Resources\qa-icon.png</Link>
+      <LogicalName>QuantumAnalyzer.ShellExtension.Resources.qa-icon.png</LogicalName>
     </EmbeddedResource>
   </ItemGroup>
 

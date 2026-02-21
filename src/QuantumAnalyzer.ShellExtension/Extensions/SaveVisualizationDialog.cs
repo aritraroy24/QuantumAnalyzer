@@ -10,9 +10,11 @@ using QuantumAnalyzer.ShellExtension.Rendering;
 namespace QuantumAnalyzer.ShellExtension.Extensions
 {
     /// <summary>
-    /// Modal dialog to export a Gaussian .cube isosurface visualization.
+    /// Modal dialog to export a molecule visualization (with optional isosurface for .cube files).
     /// Contains a live, interactive preview (right-click drag = rotate, scroll = zoom).
     /// The orientation and zoom set in the preview are what gets saved.
+    /// When <c>grid</c> is null the isovalue row is hidden and the dialog operates
+    /// in molecule-only mode (suitable for .log / .out files).
     /// </summary>
     public class SaveVisualizationDialog : Form
     {
@@ -58,7 +60,7 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
             _cubePath  = cubePath;
             _rotMatrix = InitialRotation();
 
-            Text            = "Save Visualization";
+            Text            = "Save Image";
             FormBorderStyle = FormBorderStyle.Sizable;
             StartPosition   = FormStartPosition.CenterScreen;
             MinimizeBox     = false;
@@ -89,11 +91,11 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
                 Font      = new Font("Segoe UI", 8f),
             };
 
-            // ── Bottom panel (two rows, 72 px) ─────────────────────────────
+            // ── Bottom panel (72 px with isosurface controls; 38 px molecule-only) ──
             _bottomPanel = new Panel
             {
                 Dock      = DockStyle.Bottom,
-                Height    = 72,
+                Height    = _grid != null ? 72 : 38,
                 BackColor = Color.FromArgb(10, 10, 20),
             };
             BuildBottomPanel();
@@ -118,7 +120,15 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
 
         private void BuildBottomPanel()
         {
-            // ── Row 1 (y = 4): lobes · isovalue · BG ──────────────────────
+            if (_grid != null)
+                BuildBottomPanelWithIso();
+            else
+                BuildBottomPanelMoleculeOnly();
+        }
+
+        private void BuildBottomPanelWithIso()
+        {
+            // ── Row 1 (y = 5): lobes · isovalue · BG ──────────────────────
             int x = 6;
             const int row1Y = 5;
 
@@ -199,14 +209,41 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
             _bgColorBtn.Click += OnBgColorClick;
             _bottomPanel.Controls.Add(_bgColorBtn);
 
-            // ── Row 2 (y = 38): format · Save · Cancel ────────────────────
-            const int row2Y = 40;
+            // ── Row 2 (y = 40): format · Save · Cancel ────────────────────
+            BuildFormatSaveRow(row2Y: 40);
+        }
+
+        private void BuildBottomPanelMoleculeOnly()
+        {
+            // ── Single row (y = 6): BG · Format · Save · Cancel ───────────
+            const int rowY = 6;
+
+            _bgColorBtn = new Button
+            {
+                Text      = "BG",
+                Width     = 36,
+                Height    = 22,
+                Location  = new Point(6, rowY),
+                FlatStyle = FlatStyle.Flat,
+                Font      = new Font("Segoe UI", 8f),
+                ForeColor = Color.FromArgb(180, 180, 200),
+            };
+            _bgColorBtn.FlatAppearance.BorderColor = Color.Silver;
+            _bgColorBtn.Click += OnBgColorClick;
+            _bottomPanel.Controls.Add(_bgColorBtn);
+
+            BuildFormatSaveRow(row2Y: rowY);
+        }
+
+        private void BuildFormatSaveRow(int row2Y)
+        {
+            int fmtX = _grid == null ? 50 : 6;   // leave room for BG button in molecule-only mode
 
             var fmtLbl = new Label
             {
                 Text      = "Format:",
                 AutoSize  = true,
-                Location  = new Point(6, row2Y + 4),
+                Location  = new Point(fmtX, row2Y + 4),
                 ForeColor = Color.FromArgb(180, 180, 200),
                 Font      = new Font("Segoe UI", 9f),
             };
@@ -215,7 +252,7 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
             _formatCombo = new ComboBox
             {
                 DropDownStyle = ComboBoxStyle.DropDownList,
-                Location      = new Point(58, row2Y + 2),
+                Location      = new Point(fmtX + 56, row2Y + 2),
                 Width         = 72,
             };
             _formatCombo.Items.AddRange(new object[] { "PNG", "TIFF", "JPEG" });
@@ -432,7 +469,7 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
 
             using (var dlg = new SaveFileDialog
             {
-                Title            = "Save Visualization",
+                Title            = "Save Image",
                 Filter           = filter,
                 DefaultExt       = fmt.ToLowerInvariant(),
                 FileName         = defaultName,
@@ -455,7 +492,7 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
                         bmp.Save(dlg.FileName, imgFmt);
                     }
 
-                    MessageBox.Show($"Visualization saved to:\n{dlg.FileName}",
+                    MessageBox.Show($"Image saved to:\n{dlg.FileName}",
                         "QuantumAnalyzer", MessageBoxButtons.OK, MessageBoxIcon.Information);
                     Close();
                 }

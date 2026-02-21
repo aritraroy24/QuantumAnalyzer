@@ -49,8 +49,10 @@ function Unregister-ShellexEntries {
         }
     }
 
-    # Remove SystemFileAssociations context menu entries for .cube
-    Remove-Item -Path "HKCR:\SystemFileAssociations\.cube\shellex\ContextMenuHandlers\QuantumAnalyzer" -Recurse -Force -ErrorAction SilentlyContinue
+    # Remove SystemFileAssociations context menu entries
+    foreach ($path in @('.log', '.out', '.cube', '.xyz')) {
+        Remove-Item -Path "HKCR:\SystemFileAssociations\$path\shellex\ContextMenuHandlers\QuantumAnalyzer" -Recurse -Force -ErrorAction SilentlyContinue
+    }
 
     $phKey = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\PreviewHandlers"
     Remove-ItemProperty -Path $phKey -Name $ExtGuidPrev -Force -ErrorAction SilentlyContinue

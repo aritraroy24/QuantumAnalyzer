@@ -112,8 +112,8 @@ function Register-ShellexEntries {
         }
     }
 
-    # Cube context menu (.cube) — same 4-path strategy, same GUID as .log/.out handler
-    foreach ($path in @('.cube')) {
+    # Cube + XYZ context menus — same 4-path strategy, same GUID as .log/.out handler
+    foreach ($path in @('.cube', '.xyz')) {
         # 1. Extension shellex key
         $key = New-Item -Path "HKCR:\$path\shellex\ContextMenuHandlers\QuantumAnalyzer" -Force
         $key.SetValue('', $ExtGuidMenu)
@@ -159,7 +159,7 @@ function Unregister-ShellexEntries {
     }
 
     # Remove SystemFileAssociations context menu entries
-    foreach ($path in @('.log', '.out', '.cube')) {
+    foreach ($path in @('.log', '.out', '.cube', '.xyz')) {
         Remove-Item -Path "HKCR:\SystemFileAssociations\$path\shellex\ContextMenuHandlers\QuantumAnalyzer" -Recurse -Force -ErrorAction SilentlyContinue
     }
 
@@ -301,9 +301,11 @@ $checks = @(
     @{ Label = ".log shellex context menu";         Path = "HKCR:\.log\shellex\ContextMenuHandlers\QuantumAnalyzer" },
     @{ Label = ".out shellex context menu";         Path = "HKCR:\.out\shellex\ContextMenuHandlers\QuantumAnalyzer" },
     @{ Label = ".cube shellex context menu";        Path = "HKCR:\.cube\shellex\ContextMenuHandlers\QuantumAnalyzer" },
+    @{ Label = ".xyz shellex context menu";         Path = "HKCR:\.xyz\shellex\ContextMenuHandlers\QuantumAnalyzer" },
     @{ Label = "SFA .log context menu";             Path = "HKCR:\SystemFileAssociations\.log\shellex\ContextMenuHandlers\QuantumAnalyzer" },
     @{ Label = "SFA .out context menu";             Path = "HKCR:\SystemFileAssociations\.out\shellex\ContextMenuHandlers\QuantumAnalyzer" },
     @{ Label = "SFA .cube context menu";            Path = "HKCR:\SystemFileAssociations\.cube\shellex\ContextMenuHandlers\QuantumAnalyzer" },
+    @{ Label = "SFA .xyz context menu";             Path = "HKCR:\SystemFileAssociations\.xyz\shellex\ContextMenuHandlers\QuantumAnalyzer" },
     @{ Label = "Approved (context menu)";           Path = $ApprovedKey; ValueName = $ExtGuidMenu },
     @{ Label = ".log shellex preview";              Path = "HKCR:\.log\shellex\$IID_Preview" },
     @{ Label = ".out shellex preview";              Path = "HKCR:\.out\shellex\$IID_Preview" },
@@ -321,4 +323,4 @@ foreach ($c in $checks) {
 }
 
 Write-Host ""
-Write-Host "On Windows 11: right-click then choose 'Show more options' to see 'Save Summary' (.log/.out) or 'Save Visualization' (.cube)." -ForegroundColor DarkCyan
+Write-Host "On Windows 11: right-click then choose 'Show more options' → 'QuantumAnalyzer' to see the submenu options." -ForegroundColor DarkCyan

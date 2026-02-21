@@ -11,9 +11,10 @@ using QuantumAnalyzer.ShellExtension.Parsers;
 namespace QuantumAnalyzer.ShellExtension.Extensions
 {
     /// <summary>
-    /// Adds context menu items to quantum chemistry files:
-    ///   .log / .out  → "Save Summary"
-    ///   .cube        → "Save Visualization"
+    /// Adds a "QuantumAnalyzer ▶" submenu to quantum chemistry files:
+    ///   .log / .out  → "Save Summary" + "Save Image"
+    ///   .cube        → "Save Image"  (with isosurface)
+    ///   .xyz         → "Save Image"  (molecule-only)
     /// </summary>
     [ComVisible(true)]
     [Guid("9E6D4567-89AB-4DEF-B0F1-4D5E6F7A8B9C")]
@@ -21,6 +22,7 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
     [COMServerAssociation(AssociationType.ClassOfExtension, ".log")]
     [COMServerAssociation(AssociationType.ClassOfExtension, ".out")]
     [COMServerAssociation(AssociationType.ClassOfExtension, ".cube")]
+    [COMServerAssociation(AssociationType.ClassOfExtension, ".xyz")]
     public class QuantumContextMenuHandler : SharpContextMenu
     {
         protected override bool CanShowMenu()
@@ -30,7 +32,7 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
                 string path = FirstSelectedPath();
                 if (string.IsNullOrEmpty(path)) return false;
                 string ext = Path.GetExtension(path)?.ToLowerInvariant();
-                return ext == ".log" || ext == ".out" || ext == ".cube";
+                return ext == ".log" || ext == ".out" || ext == ".cube" || ext == ".xyz";
             }
             catch
             {
@@ -41,26 +43,42 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
         protected override ContextMenuStrip CreateMenu()
         {
             string ext = Path.GetExtension(FirstSelectedPath() ?? string.Empty)?.ToLowerInvariant();
-            return ext == ".cube" ? CreateCubeMenu() : CreateSummaryMenu();
-        }
 
-        private ContextMenuStrip CreateSummaryMenu()
-        {
             var menu = new ContextMenuStrip();
-            var item = new ToolStripMenuItem("Save Summary");
-            item.Click += OnSaveSummary;
-            TrySetIcon(item);
-            menu.Items.Add(item);
-            return menu;
-        }
+            var qa   = new ToolStripMenuItem("QuantumAnalyzer");
+            TrySetIcon(qa);
 
-        private ContextMenuStrip CreateCubeMenu()
-        {
-            var menu = new ContextMenuStrip();
-            var item = new ToolStripMenuItem("Save Visualization");
-            item.Click += OnSaveVisualization;
-            TrySetIcon(item);
-            menu.Items.Add(item);
+            if (ext == ".cube")
+            {
+                // Cube: Save Image with isosurface controls
+                var saveImg = new ToolStripMenuItem("Save Image");
+                saveImg.Click += OnSaveVisualization;
+                TrySetIcon(saveImg);
+                qa.DropDownItems.Add(saveImg);
+            }
+            else if (ext == ".xyz")
+            {
+                // XYZ: Save Image only (molecule-only, no summary)
+                var saveImg = new ToolStripMenuItem("Save Image");
+                saveImg.Click += OnSaveImage;
+                TrySetIcon(saveImg);
+                qa.DropDownItems.Add(saveImg);
+            }
+            else
+            {
+                // .log / .out: Save Summary + Save Image
+                var saveSummary = new ToolStripMenuItem("Save Summary");
+                saveSummary.Click += OnSaveSummary;
+                TrySetIcon(saveSummary);
+                qa.DropDownItems.Add(saveSummary);
+
+                var saveImage = new ToolStripMenuItem("Save Image");
+                saveImage.Click += OnSaveImage;
+                TrySetIcon(saveImage);
+                qa.DropDownItems.Add(saveImage);
+            }
+
+            menu.Items.Add(qa);
             return menu;
         }
 
@@ -68,7 +86,7 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
         {
             try
             {
-                using (var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream("QuantumAnalyzer.ShellExtension.Resources.save-icon.png"))
+                using (var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream("QuantumAnalyzer.ShellExtension.Resources.qa-icon.png"))
                 {
                     if (stream != null)
                         using (var fullImg = Image.FromStream(stream))
@@ -116,6 +134,33 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
                 string msg = $"Error saving summary:\n{ex.Message}\n\n{ex.StackTrace}";
                 WriteDebugLog("OnSaveSummary ERROR: " + msg);
                 MessageBox.Show($"Error saving summary:\n{ex.Message}",
+                                "QuantumAnalyzer", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        private void OnSaveImage(object sender, EventArgs e)
+        {
+            string path = FirstSelectedPath();
+            if (string.IsNullOrEmpty(path)) return;
+
+            try
+            {
+                var result = ParserFactory.TryParse(path);
+                if (result?.Molecule == null || !result.Molecule.HasGeometry)
+                {
+                    MessageBox.Show("Could not read molecule geometry from the file.",
+                                    "QuantumAnalyzer", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
+
+                // Pass null grid → molecule-only mode (no isovalue row in dialog)
+                using (var dlg = new SaveVisualizationDialog(result.Molecule, null, path))
+                    dlg.ShowDialog();
+            }
+            catch (Exception ex)
+            {
+                WriteDebugLog("OnSaveImage ERROR: " + ex.ToString());
+                MessageBox.Show($"Error opening save dialog:\n{ex.Message}",
                                 "QuantumAnalyzer", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
