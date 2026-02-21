@@ -203,9 +203,83 @@ namespace QuantumAnalyzer.ShellExtension.Rendering
                         }
                     }
                 }
+
+                DrawLegend(g, molecule, width, height, baseRadius);
             }
 
             return bmp;
+        }
+
+        private static void DrawLegend(Graphics g, Molecule molecule, int width, int height, float baseRadius)
+        {
+            if (molecule?.Atoms == null || molecule.Atoms.Count == 0) return;
+
+            // Find unique elements
+            var uniqueElements = new HashSet<string>();
+            var elementsInOrder = new List<string>();
+            foreach (var atom in molecule.Atoms)
+            {
+                string sym = atom.Element.ToUpperInvariant();
+                if (uniqueElements.Add(sym)) elementsInOrder.Add(sym);
+            }
+
+            // Scale legend spheres relative to structure
+            float legendRadius = Math.Max(7f, Math.Min(11f, baseRadius * 0.6f));
+            float itemSpacing = 22f;
+            float maxWidth = width * 0.9f;
+
+            using (var font = new Font("Segoe UI", 9f, FontStyle.Regular))
+            {
+                // Measure all items first to handle centering and wrapping
+                var rows = new List<List<(string Name, Color Color, float Width)>>();
+                var currentRow = new List<(string Name, Color Color, float Width)>();
+                float currentRowWidth = 0;
+
+                foreach (var sym in elementsInOrder)
+                {
+                    string name = ElementData.GetElementName(sym);
+                    Color color = ElementData.GetCpkColor(sym);
+                    float itemWidth = (legendRadius * 2) + 6f + g.MeasureString(name, font).Width;
+
+                    if (currentRow.Count > 0 && currentRowWidth + itemSpacing + itemWidth > maxWidth)
+                    {
+                        rows.Add(currentRow);
+                        currentRow = new List<(string Name, Color Color, float Width)>();
+                        currentRowWidth = 0;
+                    }
+
+                    currentRow.Add((name, color, itemWidth));
+                    currentRowWidth += (currentRow.Count > 1 ? itemSpacing : 0) + itemWidth;
+                }
+                if (currentRow.Count > 0) rows.Add(currentRow);
+
+                // Draw rows from bottom up
+                float y = height - 25f - (rows.Count - 1) * 25f;
+                foreach (var row in rows)
+                {
+                    float totalRowWidth = 0;
+                    foreach (var item in row) totalRowWidth += item.Width;
+                    totalRowWidth += (row.Count - 1) * itemSpacing;
+
+                    float x = (width - totalRowWidth) / 2f;
+
+                    foreach (var item in row)
+                    {
+                        float cx = x + legendRadius;
+                        float cy = y + 8f;
+
+                        DrawAtomSphere(g, cx, cy, legendRadius, item.Color, 0f);
+                        x += (legendRadius * 2) + 6f;
+
+                        using (var textBrush = new SolidBrush(Color.FromArgb(230, 230, 230)))
+                        {
+                            g.DrawString(item.Name, font, textBrush, x, y);
+                        }
+                        x += g.MeasureString(item.Name, font).Width + itemSpacing;
+                    }
+                    y += 25f;
+                }
+            }
         }
 
         // ──────────────────────────────────────────────────────────────────

@@ -96,6 +96,30 @@ namespace QuantumAnalyzer.ShellExtension.Chemistry
             { "BI", Color.FromArgb(158,  79, 181) },
         };
 
+        public static readonly Dictionary<string, string> ElementNames = new Dictionary<string, string>
+        {
+            { "H",  "Hydrogen" }, { "HE", "Helium" },
+            { "LI", "Lithium" },  { "BE", "Beryllium" }, { "B",  "Boron" },    { "C",  "Carbon" },
+            { "N",  "Nitrogen" }, { "O",  "Oxygen" },    { "F",  "Fluorine" }, { "NE", "Neon" },
+            { "NA", "Sodium" },   { "MG", "Magnesium" }, { "AL", "Aluminium" },{ "SI", "Silicon" },
+            { "P",  "Phosphorus" },{ "S",  "Sulfur" },    { "CL", "Chlorine" }, { "AR", "Argon" },
+            { "K",  "Potassium" }, { "CA", "Calcium" },
+            { "SC", "Scandium" }, { "TI", "Titanium" },  { "V",  "Vanadium" }, { "CR", "Chromium" },
+            { "MN", "Manganese" },{ "FE", "Iron" },      { "CO", "Cobalt" },   { "NI", "Nickel" },
+            { "CU", "Copper" },   { "ZN", "Zinc" },
+            { "GA", "Gallium" },  { "GE", "Germanium" }, { "AS", "Arsenic" },  { "SE", "Selenium" },
+            { "BR", "Bromine" },  { "KR", "Krypton" },
+            { "RB", "Rubidium" }, { "SR", "Strontium" }, { "Y",  "Yttrium" },  { "ZR", "Zirconium" },
+            { "NB", "Niobium" },  { "MO", "Molybdenum" },{ "TC", "Technetium" },{ "RU", "Ruthenium" },
+            { "RH", "Rhodium" },  { "PD", "Palladium" }, { "AG", "Silver" },   { "CD", "Cadmium" },
+            { "IN", "Indium" },   { "SN", "Tin" },       { "SB", "Antimony" }, { "TE", "Tellurium" },
+            { "I",  "Iodine" },   { "XE", "Xenon" },
+            { "CS", "Caesium" },  { "BA", "Barium" },
+            { "LA", "Lanthanum" }, { "CE", "Cerium" },   { "PR", "Praseodymium" },{ "ND", "Neodymium" },
+            { "PT", "Platinum" }, { "AU", "Gold" },      { "HG", "Mercury" },
+            { "PB", "Lead" },     { "BI", "Bismuth" },
+        };
+
         // Atomic number → element symbol (1-based, covers Z=1..54 + common metals)
         private static readonly Dictionary<int, string> AtomicNumberToSymbol = new Dictionary<int, string>
         {
@@ -115,6 +139,12 @@ namespace QuantumAnalyzer.ShellExtension.Chemistry
         public static string SymbolFromAtomicNumber(int z)
         {
             return AtomicNumberToSymbol.TryGetValue(z, out string sym) ? sym : "X";
+        }
+
+        public static string GetElementName(string element)
+        {
+            string key = element.ToUpperInvariant();
+            return ElementNames.TryGetValue(key, out string name) ? name : element;
         }
 
         public static double GetCovalentRadius(string element)

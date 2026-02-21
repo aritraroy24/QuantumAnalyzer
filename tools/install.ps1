@@ -289,5 +289,4 @@ foreach ($c in $checks) {
 }
 
 Write-Host ""
-Write-Host "Open Explorer and navigate to a Gaussian or ORCA .log / .out file to test."
 Write-Host "On Windows 11: right-click the file then choose 'Show more options' to see 'Save Summary'." -ForegroundColor DarkCyan
