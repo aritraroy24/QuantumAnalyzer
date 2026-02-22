@@ -13,8 +13,10 @@ namespace QuantumAnalyzer.ShellExtension.Parsers
             new OrcaParser(),
             new GjfParser(),
             new OrcaInputParser(),
+            new PoscarParser(),
             new XyzParser(),
             new CubeParser(),
+            new ChgcarParser(),
         };
 
         /// <summary>
@@ -55,6 +57,22 @@ namespace QuantumAnalyzer.ShellExtension.Parsers
             try
             {
                 if (string.IsNullOrEmpty(filePath) || !File.Exists(filePath)) return null;
+
+                // CHGCAR has no extension; detect by filename before content scanning,
+                // because the volumetric section falls outside the 30-line window for large files.
+                string fname = Path.GetFileName(filePath).ToUpperInvariant();
+                if (fname == "CHGCAR")
+                {
+                    try
+                    {
+                        using (var reader = new StreamReader(filePath))
+                        {
+                            var r = new ChgcarParser().Parse(reader);
+                            if (r != null) return r;
+                        }
+                    }
+                    catch { }
+                }
 
                 string[] firstLines = ReadFirstLines(filePath, 30);
                 IQuantumParser parser = FindParser(firstLines);

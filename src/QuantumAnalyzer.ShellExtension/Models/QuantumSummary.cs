@@ -2,7 +2,7 @@ using System.Collections.Generic;
 
 namespace QuantumAnalyzer.ShellExtension.Models
 {
-    public enum SoftwareType { Gaussian, Orca, Structure, CubeFile }
+    public enum SoftwareType { Gaussian, Orca, Structure, CubeFile, VASP }
 
     public class QuantumSummary
     {

@@ -20,7 +20,7 @@ $ExtGuidTip      = "{7E4B2345-6789-4BCD-9EF0-2B3C4D5E6F7A}"
 $ExtGuidPrev     = "{8D5C3456-789A-4CDE-AEF1-3C4D5E6F7A8B}"
 $ExtGuidMenu     = "{9E6D4567-89AB-4DEF-B0F1-4D5E6F7A8B9C}"
 
-$Extensions = @('.log', '.out', '.gjf', '.com', '.inp', '.xyz', '.cube')
+$Extensions = @('.log', '.out', '.gjf', '.com', '.inp', '.xyz', '.cube', '.poscar', '.contcar')
 
 $IID_Thumbnail = "{E357FCCD-A995-4576-B01F-234630154E96}"
 $IID_InfoTip   = "{00021500-0000-0000-C000-000000000046}"
@@ -50,9 +50,14 @@ function Unregister-ShellexEntries {
     }
 
     # Remove SystemFileAssociations context menu entries
-    foreach ($path in @('.log', '.out', '.cube', '.xyz')) {
+    foreach ($path in @('.log', '.out', '.cube', '.xyz', '.poscar', '.contcar')) {
         Remove-Item -Path "HKCR:\SystemFileAssociations\$path\shellex\ContextMenuHandlers\QuantumAnalyzer" -Recurse -Force -ErrorAction SilentlyContinue
     }
+
+    # Remove all-files (*) context menu entry and no-extension preview entry.
+    # Use reg.exe — PowerShell cmdlets expand '*' as a wildcard and loop forever.
+    try { & reg delete "HKCR\*\shellex\ContextMenuHandlers\QuantumAnalyzer" /f 2>&1 | Out-Null } catch { }
+    try { & reg delete "HKCR\.\shellex\$IID_Preview"                        /f 2>&1 | Out-Null } catch { }
 
     $phKey = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\PreviewHandlers"
     Remove-ItemProperty -Path $phKey -Name $ExtGuidPrev -Force -ErrorAction SilentlyContinue

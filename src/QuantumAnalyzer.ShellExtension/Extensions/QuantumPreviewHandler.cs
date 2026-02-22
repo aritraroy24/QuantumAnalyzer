@@ -24,6 +24,8 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
     [COMServerAssociation(AssociationType.ClassOfExtension, ".inp")]
     [COMServerAssociation(AssociationType.ClassOfExtension, ".xyz")]
     [COMServerAssociation(AssociationType.ClassOfExtension, ".cube")]
+    [COMServerAssociation(AssociationType.ClassOfExtension, ".poscar")]
+    [COMServerAssociation(AssociationType.ClassOfExtension, ".contcar")]
     public class QuantumPreviewHandler : SharpPreviewHandler
     {
         protected override PreviewHandlerControl DoPreview()
@@ -38,12 +40,28 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
                     string fileName = Path.GetFileName(filePath);
                     string label    = BuildDisplayLabel(fileName, ext, result?.Summary);
 
-                    // Route .cube files (or any result with volumetric data) to CubePreviewControl
+                    // Route CHGCAR (volumetric + crystal data) to ChgcarPreviewControl
+                    if (result?.VolumetricData != null && result?.CrystalData != null)
+                    {
+                        var chgcarCtrl = new ChgcarPreviewControl();
+                        chgcarCtrl.SetData(result.Molecule, result.VolumetricData, result.CrystalData, label);
+                        return chgcarCtrl;
+                    }
+
+                    // Route .cube files (volumetric data only) to CubePreviewControl
                     if (result?.VolumetricData != null)
                     {
                         var cubeCtrl = new CubePreviewControl();
                         cubeCtrl.SetData(result.Molecule, result.VolumetricData, label);
                         return cubeCtrl;
+                    }
+
+                    // Route POSCAR/CONTCAR (crystal data only) to CrystalPreviewControl
+                    if (result?.CrystalData != null)
+                    {
+                        var crystalCtrl = new CrystalPreviewControl();
+                        crystalCtrl.SetCrystal(result.Molecule, result.CrystalData, label);
+                        return crystalCtrl;
                     }
 
                     var control = new MoleculePreviewControl();
@@ -58,6 +76,17 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
             return new MoleculePreviewControl();
         }
 
+        private static bool IsVaspStructureFilename(string name)
+        {
+            string upper = name.ToUpperInvariant();
+            return upper == "POSCAR" || upper == "CONTCAR";
+        }
+
+        private static bool IsChgcarFilename(string name)
+        {
+            return name.ToUpperInvariant() == "CHGCAR";
+        }
+
         private static string BuildDisplayLabel(string fileName, string ext, QuantumSummary summary)
         {
             if (ext == ".xyz")
@@ -65,6 +94,13 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
 
             if (ext == ".cube")
                 return $"[{fileName}] - Cube File";
+
+            if (ext == ".poscar" || ext == ".contcar"
+                || (string.IsNullOrEmpty(ext) && IsVaspStructureFilename(fileName)))
+                return $"[{fileName}] - VASP Structure";
+
+            if (string.IsNullOrEmpty(ext) && IsChgcarFilename(fileName))
+                return $"[{fileName}] - Charge Density";
 
             string s = summary == null ? string.Empty
                 : $"{summary.Software}  {summary.Method ?? "?"}/{summary.BasisSet ?? "?"}  {summary.CalcType ?? ""}  {summary.Spin ?? ""}".Trim();

@@ -23,6 +23,8 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
     [COMServerAssociation(AssociationType.ClassOfExtension, ".out")]
     [COMServerAssociation(AssociationType.ClassOfExtension, ".cube")]
     [COMServerAssociation(AssociationType.ClassOfExtension, ".xyz")]
+    [COMServerAssociation(AssociationType.ClassOfExtension, ".poscar")]
+    [COMServerAssociation(AssociationType.ClassOfExtension, ".contcar")]
     public class QuantumContextMenuHandler : SharpContextMenu
     {
         protected override bool CanShowMenu()
@@ -32,7 +34,10 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
                 string path = FirstSelectedPath();
                 if (string.IsNullOrEmpty(path)) return false;
                 string ext = Path.GetExtension(path)?.ToLowerInvariant();
-                return ext == ".log" || ext == ".out" || ext == ".cube" || ext == ".xyz";
+                return ext == ".log" || ext == ".out" || ext == ".cube" || ext == ".xyz"
+                    || ext == ".poscar" || ext == ".contcar"
+                    || (string.IsNullOrEmpty(ext) && IsPoscarFilename(path))
+                    || (string.IsNullOrEmpty(ext) && IsChgcarFilename(path));
             }
             catch
             {
@@ -42,7 +47,12 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
 
         protected override ContextMenuStrip CreateMenu()
         {
-            string ext = Path.GetExtension(FirstSelectedPath() ?? string.Empty)?.ToLowerInvariant();
+            string selectedPath = FirstSelectedPath() ?? string.Empty;
+            string ext = Path.GetExtension(selectedPath)?.ToLowerInvariant();
+            // Treat extensionless POSCAR/CONTCAR filenames as crystal files
+            bool isCrystalFile = ext == ".poscar" || ext == ".contcar"
+                || (string.IsNullOrEmpty(ext) && IsPoscarFilename(selectedPath));
+            bool isChgcarFile = string.IsNullOrEmpty(ext) && IsChgcarFilename(selectedPath);
 
             var menu = new ContextMenuStrip();
             var qa   = new ToolStripMenuItem("QuantumAnalyzer");
@@ -53,6 +63,22 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
                 // Cube: Save Image with isosurface controls
                 var saveImg = new ToolStripMenuItem("Save Image");
                 saveImg.Click += OnSaveVisualization;
+                TrySetIcon(saveImg);
+                qa.DropDownItems.Add(saveImg);
+            }
+            else if (isChgcarFile)
+            {
+                // CHGCAR: Save Image (crystal + isosurface)
+                var saveImg = new ToolStripMenuItem("Save Image");
+                saveImg.Click += OnSaveChgcarImage;
+                TrySetIcon(saveImg);
+                qa.DropDownItems.Add(saveImg);
+            }
+            else if (isCrystalFile)
+            {
+                // POSCAR/CONTCAR: Save Image (crystal structure)
+                var saveImg = new ToolStripMenuItem("Save Image");
+                saveImg.Click += OnSaveCrystalImage;
                 TrySetIcon(saveImg);
                 qa.DropDownItems.Add(saveImg);
             }
@@ -191,6 +217,58 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
             }
         }
 
+        private void OnSaveChgcarImage(object sender, EventArgs e)
+        {
+            string path = FirstSelectedPath();
+            if (string.IsNullOrEmpty(path)) return;
+
+            try
+            {
+                var result = ParserFactory.TryParse(path);
+                if (result?.VolumetricData == null || result?.CrystalData == null)
+                {
+                    MessageBox.Show("Could not read CHGCAR data from the file.",
+                                    "QuantumAnalyzer", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
+
+                using (var dlg = new SaveChgcarDialog(result.Molecule, result.VolumetricData, result.CrystalData))
+                    dlg.ShowDialog();
+            }
+            catch (Exception ex)
+            {
+                WriteDebugLog("OnSaveChgcarImage ERROR: " + ex.ToString());
+                MessageBox.Show($"Error opening save dialog:\n{ex.Message}",
+                                "QuantumAnalyzer", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        private void OnSaveCrystalImage(object sender, EventArgs e)
+        {
+            string path = FirstSelectedPath();
+            if (string.IsNullOrEmpty(path)) return;
+
+            try
+            {
+                var result = ParserFactory.TryParse(path);
+                if (result?.CrystalData == null)
+                {
+                    MessageBox.Show("Could not read crystal structure from the file.",
+                                    "QuantumAnalyzer", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
+
+                using (var dlg = new SaveCrystalDialog(result.Molecule, result.CrystalData))
+                    dlg.ShowDialog();
+            }
+            catch (Exception ex)
+            {
+                WriteDebugLog("OnSaveCrystalImage ERROR: " + ex.ToString());
+                MessageBox.Show($"Error opening save dialog:\n{ex.Message}",
+                                "QuantumAnalyzer", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
         /// <summary>
         /// Appends a timestamped line to %TEMP%\QuantumAnalyzer_debug.log.
         /// Safe to call from any thread; ignores I/O errors.
@@ -215,6 +293,24 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
             foreach (string p in SelectedItemPaths)
                 return p;
             return null;
+        }
+
+        /// <summary>
+        /// Returns true when the filename (without path) is "POSCAR" or "CONTCAR",
+        /// case-insensitive. Used to handle VASP files that have no file extension.
+        /// </summary>
+        private static bool IsPoscarFilename(string path)
+        {
+            string name = Path.GetFileName(path).ToUpperInvariant();
+            return name == "POSCAR" || name == "CONTCAR";
+        }
+
+        /// <summary>
+        /// Returns true when the filename (without path) is "CHGCAR", case-insensitive.
+        /// </summary>
+        private static bool IsChgcarFilename(string path)
+        {
+            return Path.GetFileName(path).ToUpperInvariant() == "CHGCAR";
         }
     }
 }

@@ -43,7 +43,7 @@ $IID_Thumbnail = "{E357FCCD-A995-4576-B01F-234630154E96}"
 $IID_InfoTip   = "{00021500-0000-0000-C000-000000000046}"
 $IID_Preview   = "{8895b1c6-b41f-4c1c-a562-0d564250836f}"
 
-$Extensions = @('.log', '.out', '.gjf', '.com', '.inp', '.xyz', '.cube')
+$Extensions = @('.log', '.out', '.gjf', '.com', '.inp', '.xyz', '.cube', '.poscar', '.contcar')
 if (-not (Test-Path 'HKCR:')) {
     $null = New-PSDrive -Name HKCR -PSProvider Registry -Root HKEY_CLASSES_ROOT
 }
@@ -112,8 +112,8 @@ function Register-ShellexEntries {
         }
     }
 
-    # Cube + XYZ context menus — same 4-path strategy, same GUID as .log/.out handler
-    foreach ($path in @('.cube', '.xyz')) {
+    # Cube + XYZ + POSCAR + CONTCAR context menus — same 4-path strategy, same GUID as .log/.out handler
+    foreach ($path in @('.cube', '.xyz', '.poscar', '.contcar')) {
         # 1. Extension shellex key
         $key = New-Item -Path "HKCR:\$path\shellex\ContextMenuHandlers\QuantumAnalyzer" -Force
         $key.SetValue('', $ExtGuidMenu)
@@ -141,6 +141,20 @@ function Register-ShellexEntries {
         }
     }
 
+    # Extensionless files (POSCAR / CONTCAR named without any extension).
+    #
+    # Context menu: HKCR\* is the Windows "all files" key — Explorer checks it on every
+    # right-click regardless of filename or extension.  CanShowMenu() in the C# handler
+    # filters by filename so extra menu items only appear for POSCAR / CONTCAR.
+    #
+    # Preview handler: HKCR\. is the Windows no-extension file type key.
+    #
+    # IMPORTANT: use reg.exe for both keys.  PowerShell's New-Item / Remove-Item expand
+    # '*' and treat '.' specially, causing infinite loops or silent no-ops.  reg.exe
+    # passes the path straight to the Win32 API with no wildcard expansion.
+    & reg add "HKCR\*\shellex\ContextMenuHandlers\QuantumAnalyzer" /ve /d $ExtGuidMenu /f 2>&1 | Out-Null
+    & reg add "HKCR\.\shellex\$IID_Preview"                        /ve /d $ExtGuidPrev  /f 2>&1 | Out-Null
+
     # Preview handlers must also appear in this global list
     $phKey = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\PreviewHandlers"
     if (-not (Test-Path $phKey)) { $null = New-Item -Path $phKey -Force }
@@ -159,9 +173,16 @@ function Unregister-ShellexEntries {
     }
 
     # Remove SystemFileAssociations context menu entries
-    foreach ($path in @('.log', '.out', '.cube', '.xyz')) {
+    foreach ($path in @('.log', '.out', '.cube', '.xyz', '.poscar', '.contcar')) {
         Remove-Item -Path "HKCR:\SystemFileAssociations\$path\shellex\ContextMenuHandlers\QuantumAnalyzer" -Recurse -Force -ErrorAction SilentlyContinue
     }
+
+    # Remove all-files (*) context menu entry and no-extension preview entry.
+    # Use reg.exe — PowerShell cmdlets expand '*' as a wildcard and loop forever.
+    # try/catch because reg.exe exits non-zero (and writes to stderr) when the key
+    # doesn't exist yet, which trips $ErrorActionPreference = 'Stop'.
+    try { & reg delete "HKCR\*\shellex\ContextMenuHandlers\QuantumAnalyzer" /f 2>&1 | Out-Null } catch { }
+    try { & reg delete "HKCR\.\shellex\$IID_Preview"                        /f 2>&1 | Out-Null } catch { }
 
     $phKey = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\PreviewHandlers"
     Remove-ItemProperty -Path $phKey -Name $ExtGuidPrev -Force -ErrorAction SilentlyContinue
@@ -306,6 +327,10 @@ $checks = @(
     @{ Label = "SFA .out context menu";             Path = "HKCR:\SystemFileAssociations\.out\shellex\ContextMenuHandlers\QuantumAnalyzer" },
     @{ Label = "SFA .cube context menu";            Path = "HKCR:\SystemFileAssociations\.cube\shellex\ContextMenuHandlers\QuantumAnalyzer" },
     @{ Label = "SFA .xyz context menu";             Path = "HKCR:\SystemFileAssociations\.xyz\shellex\ContextMenuHandlers\QuantumAnalyzer" },
+    @{ Label = ".poscar shellex context menu";      Path = "HKCR:\.poscar\shellex\ContextMenuHandlers\QuantumAnalyzer" },
+    @{ Label = ".contcar shellex context menu";     Path = "HKCR:\.contcar\shellex\ContextMenuHandlers\QuantumAnalyzer" },
+    @{ Label = "SFA .poscar context menu";          Path = "HKCR:\SystemFileAssociations\.poscar\shellex\ContextMenuHandlers\QuantumAnalyzer" },
+    @{ Label = "SFA .contcar context menu";         Path = "HKCR:\SystemFileAssociations\.contcar\shellex\ContextMenuHandlers\QuantumAnalyzer" },
     @{ Label = "Approved (context menu)";           Path = $ApprovedKey; ValueName = $ExtGuidMenu },
     @{ Label = ".log shellex preview";              Path = "HKCR:\.log\shellex\$IID_Preview" },
     @{ Label = ".out shellex preview";              Path = "HKCR:\.out\shellex\$IID_Preview" },
@@ -322,5 +347,18 @@ foreach ($c in $checks) {
     Write-Host "  $status $($c.Label)" -ForegroundColor $color
 }
 
+# Verify keys that contain '*' or '.' — Test-Path expands wildcards, so use reg.exe instead
+$regChecks = @(
+    @{ Label = "All-files (*) context menu"; Key = "HKCR\*\shellex\ContextMenuHandlers\QuantumAnalyzer" },
+    @{ Label = "No-ext shellex preview";     Key = "HKCR\.\shellex\$IID_Preview" }
+)
+foreach ($rc in $regChecks) {
+    & reg query $rc.Key 2>&1 | Out-Null
+    $ok     = $LASTEXITCODE -eq 0
+    $status = if ($ok) { "[OK]  " } else { "[MISS]" }
+    $color  = if ($ok) { 'Green'  } else { 'Red'   }
+    Write-Host "  $status $($rc.Label)" -ForegroundColor $color
+}
+
 Write-Host ""
-Write-Host "On Windows 11: right-click then choose 'Show more options' → 'QuantumAnalyzer' to see the submenu options." -ForegroundColor DarkCyan
+Write-Host "On Windows 11: right-click then choose 'Show more options' and then 'QuantumAnalyzer' to see the submenu options." -ForegroundColor DarkCyan
