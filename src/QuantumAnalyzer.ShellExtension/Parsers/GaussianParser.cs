@@ -139,6 +139,27 @@ namespace QuantumAnalyzer.ShellExtension.Parsers
                 }
             }
 
+            // Large-file mode parses head+tail, which can miss many intermediate SCF blocks.
+            // Recover full optimization profile via a lightweight full-stream energy scan.
+            var fullScfEnergiesEh = ExtractAllScfEnergiesEh(stream);
+            if (fullScfEnergiesEh.Count > 1)
+            {
+                var fullScfEnergiesEv = new List<double>(fullScfEnergiesEh.Count);
+                foreach (double e in fullScfEnergiesEh)
+                    fullScfEnergiesEv.Add(e * HartreeToEv);
+                result.OptimizationStepEnergiesEV = fullScfEnergiesEv;
+            }
+
+            var fullFrames = ExtractAllGaussianOrientationFrames(stream);
+            if (fullFrames.Count > 1)
+            {
+                result.MoleculeFrames = fullFrames;
+                result.MoleculeFrameNames = new List<string>(fullFrames.Count);
+                for (int i = 0; i < fullFrames.Count; i++)
+                    result.MoleculeFrameNames.Add("Step " + (i + 1));
+                result.Molecule = fullFrames[fullFrames.Count - 1];
+            }
+
             return result;
         }
 
@@ -159,12 +180,15 @@ namespace QuantumAnalyzer.ShellExtension.Parsers
             var currentOrientationBlock = new List<string>();
             var lastOrientationBlock = new List<string>();      // Standard orientation
             var lastInputOrientationBlock = new List<string>(); // Input orientation (nosymm fallback)
+            var standardOrientationBlocks = new List<List<string>>();
+            var inputOrientationBlocks = new List<List<string>>();
             bool inOrientation = false;
             bool currentBlockIsStandard = false;
             int orientationHeaderCount = 0;
 
             bool normalTermination = false;
             int imagFreqCount = 0;
+            var optimizationStepEnergiesEh = new List<double>();
 
             // Gen basis set parsing state
             bool lookingForGenBasis = false;
@@ -327,9 +351,15 @@ namespace QuantumAnalyzer.ShellExtension.Parsers
                         {
                             inOrientation = false;
                             if (currentBlockIsStandard)
+                            {
                                 lastOrientationBlock = new List<string>(currentOrientationBlock);
+                                standardOrientationBlocks.Add(new List<string>(currentOrientationBlock));
+                            }
                             else
+                            {
                                 lastInputOrientationBlock = new List<string>(currentOrientationBlock);
+                                inputOrientationBlocks.Add(new List<string>(currentOrientationBlock));
+                            }
                         }
                         continue;
                     }
@@ -349,7 +379,10 @@ namespace QuantumAnalyzer.ShellExtension.Parsers
                     if (double.TryParse(scf.Groups[1].Value,
                             System.Globalization.NumberStyles.Float,
                             System.Globalization.CultureInfo.InvariantCulture, out double scfEnergy))
+                    {
                         summary.ElectronicEnergy = scfEnergy;
+                        optimizationStepEnergiesEh.Add(scfEnergy);
+                    }
                     // Reset eigenvalue accumulators for new SCF
                     tempLastOcc = double.NaN;
                     tempFirstVirt = double.NaN;
@@ -466,7 +499,46 @@ namespace QuantumAnalyzer.ShellExtension.Parsers
 
             if (!summary.IsValid()) return null;
 
-            return new ParseResult { Summary = summary, Molecule = molecule };
+            // Build per-step geometry frames from all orientation blocks.
+            var frameBlocks = standardOrientationBlocks.Count > 0 ? standardOrientationBlocks : inputOrientationBlocks;
+            List<Molecule> moleculeFrames = null;
+            List<string> moleculeFrameNames = null;
+            if (frameBlocks.Count > 1)
+            {
+                moleculeFrames = new List<Molecule>();
+                moleculeFrameNames = new List<string>();
+                int frameNo = 1;
+                foreach (var block in frameBlocks)
+                {
+                    var frameMol = BuildMoleculeFromGaussianOrientationBlock(block);
+                    if (frameMol == null || !frameMol.HasGeometry) continue;
+                    moleculeFrames.Add(frameMol);
+                    moleculeFrameNames.Add("Step " + frameNo);
+                    frameNo++;
+                }
+                if (moleculeFrames.Count <= 1)
+                {
+                    moleculeFrames = null;
+                    moleculeFrameNames = null;
+                }
+            }
+
+            List<double> optimizationStepEnergiesEv = null;
+            if (optimizationStepEnergiesEh.Count > 1)
+            {
+                optimizationStepEnergiesEv = new List<double>(optimizationStepEnergiesEh.Count);
+                foreach (double e in optimizationStepEnergiesEh)
+                    optimizationStepEnergiesEv.Add(e * HartreeToEv);
+            }
+
+            return new ParseResult
+            {
+                Summary = summary,
+                Molecule = molecule,
+                MoleculeFrames = moleculeFrames,
+                MoleculeFrameNames = moleculeFrameNames,
+                OptimizationStepEnergiesEV = optimizationStepEnergiesEv,
+            };
         }
 
         // ──────────────────────────────────────────────────────────────
@@ -513,6 +585,104 @@ namespace QuantumAnalyzer.ShellExtension.Parsers
                 }
             }
             return coords;
+        }
+
+        private static List<double> ExtractAllScfEnergiesEh(Stream stream)
+        {
+            var energies = new List<double>();
+            stream.Seek(0, SeekOrigin.Begin);
+
+            using (var reader = new StreamReader(stream, Encoding.UTF8, false, 4096, true))
+            {
+                string line;
+                while ((line = reader.ReadLine()) != null)
+                {
+                    var scf = Regex.Match(line, @"SCF Done:\s+E\(\S+\)\s*=\s*([-\d.]+)");
+                    if (!scf.Success) continue;
+                    if (double.TryParse(
+                        scf.Groups[1].Value,
+                        System.Globalization.NumberStyles.Float,
+                        System.Globalization.CultureInfo.InvariantCulture,
+                        out double e))
+                    {
+                        energies.Add(e);
+                    }
+                }
+            }
+
+            return energies;
+        }
+
+        private static Molecule BuildMoleculeFromGaussianOrientationBlock(List<string> orientationBlock)
+        {
+            if (orientationBlock == null || orientationBlock.Count == 0) return null;
+            var molecule = new Molecule();
+            foreach (string ol in orientationBlock)
+            {
+                string[] parts = ol.Trim().Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+                if (parts.Length >= 6 &&
+                    int.TryParse(parts[0], out _) &&
+                    int.TryParse(parts[1], out int atomicZ) &&
+                    double.TryParse(parts[3], System.Globalization.NumberStyles.Float,
+                        System.Globalization.CultureInfo.InvariantCulture, out double x) &&
+                    double.TryParse(parts[4], System.Globalization.NumberStyles.Float,
+                        System.Globalization.CultureInfo.InvariantCulture, out double y) &&
+                    double.TryParse(parts[5], System.Globalization.NumberStyles.Float,
+                        System.Globalization.CultureInfo.InvariantCulture, out double z))
+                {
+                    string element = ElementData.SymbolFromAtomicNumber(atomicZ);
+                    molecule.Atoms.Add(new Atom(element, x, y, z));
+                }
+            }
+
+            if (molecule.Atoms.Count == 0) return null;
+            molecule.Bonds = BondDetector.Detect(molecule.Atoms);
+            return molecule;
+        }
+
+        private static List<Molecule> ExtractAllGaussianOrientationFrames(Stream stream)
+        {
+            var frames = new List<Molecule>();
+            stream.Seek(0, SeekOrigin.Begin);
+
+            using (var reader = new StreamReader(stream, Encoding.UTF8, false, 4096, true))
+            {
+                bool inOrientation = false;
+                int dashCount = 0;
+                var block = new List<string>();
+                string line;
+                while ((line = reader.ReadLine()) != null)
+                {
+                    if (!inOrientation)
+                    {
+                        if (line.Contains("Standard orientation:") || line.Contains("Input orientation:"))
+                        {
+                            inOrientation = true;
+                            dashCount = 0;
+                            block = new List<string>();
+                        }
+                        continue;
+                    }
+
+                    if (line.Contains("-----"))
+                    {
+                        dashCount++;
+                        if (dashCount == 3)
+                        {
+                            inOrientation = false;
+                            var mol = BuildMoleculeFromGaussianOrientationBlock(block);
+                            if (mol != null && mol.HasGeometry)
+                                frames.Add(mol);
+                        }
+                        continue;
+                    }
+
+                    if (dashCount >= 2)
+                        block.Add(line);
+                }
+            }
+
+            return frames;
         }
 
         // ── Backward chunk scan ───────────────────────────────────────────────────

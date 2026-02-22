@@ -11,7 +11,7 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
     /// <summary>
     /// Preview Pane handler (Alt+P in Explorer) that shows a live rotating
     /// 3D molecule for Gaussian / ORCA output files.
-    /// DoPreview() returns the control â€” SharpShell handles window hosting.
+    /// DoPreview() returns the control=> SharpShell handles window hosting.
     /// </summary>
     [ComVisible(true)]
     [Guid("8D5C3456-789A-4CDE-AEF1-3C4D5E6F7A8B")]
@@ -39,12 +39,13 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
                     string ext      = Path.GetExtension(filePath).ToLowerInvariant();
                     string fileName = Path.GetFileName(filePath);
                     string label    = BuildDisplayLabel(fileName, ext, result?.Summary);
+                    string title    = fileName;
 
                     // Route CHGCAR (volumetric + crystal data) to ChgcarPreviewControl
                     if (result?.VolumetricData != null && result?.CrystalData != null)
                     {
                         var chgcarCtrl = new ChgcarPreviewControl();
-                        chgcarCtrl.SetData(result.Molecule, result.VolumetricData, result.CrystalData, label);
+                        chgcarCtrl.SetData(result.Molecule, result.VolumetricData, result.CrystalData, title);
                         return chgcarCtrl;
                     }
 
@@ -52,7 +53,7 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
                     if (result?.VolumetricData != null)
                     {
                         var cubeCtrl = new CubePreviewControl();
-                        cubeCtrl.SetData(result.Molecule, result.VolumetricData, label);
+                        cubeCtrl.SetData(result.Molecule, result.VolumetricData, title);
                         return cubeCtrl;
                     }
 
@@ -60,7 +61,7 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
                     if (result?.CrystalData != null)
                     {
                         var crystalCtrl = new CrystalPreviewControl();
-                        crystalCtrl.SetCrystal(result.Molecule, result.CrystalData, label);
+                        crystalCtrl.SetCrystal(result.Molecule, result.CrystalData, title);
                         return crystalCtrl;
                     }
 
@@ -69,21 +70,32 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
                         result?.OutcarStepData != null)
                     {
                         var outcarCtrl = new OutcarPreviewControl();
-                        outcarCtrl.SetData(result.Molecule, result.OutcarStepData, label);
+                        outcarCtrl.SetData(result.Molecule, result.OutcarStepData, title);
                         return outcarCtrl;
                     }
 
                     var control = new MoleculePreviewControl();
-                    if (ext == ".xyz" && result?.MoleculeFrames != null && result.MoleculeFrames.Count > 1)
-                        control.SetMolecules(result.MoleculeFrames, result.MoleculeFrameNames, label);
+                    if (result?.MoleculeFrames != null && result.MoleculeFrames.Count > 1)
+                        control.SetMolecules(
+                            result.MoleculeFrames,
+                            result.MoleculeFrameNames,
+                            label,
+                            result?.Summary,
+                            filePath,
+                            result?.OptimizationStepEnergiesEV);
                     else
-                        control.SetMolecule(result?.Molecule, label);
+                        control.SetMolecule(
+                            result?.Molecule,
+                            label,
+                            result?.Summary,
+                            filePath,
+                            result?.OptimizationStepEnergiesEV);
                     return control;
                 }
             }
             catch
             {
-                // Fail silently â€” return blank control
+                // Fail silently=> return blank control
             }
             return new MoleculePreviewControl();
         }
@@ -129,15 +141,14 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
                     if (summary.AtomCounts != null)
                         foreach (int v in summary.AtomCounts.Values) natoms += v;
                     string perAtom = natoms > 0 ? $"  ({e / natoms:F3} eV/atom)" : "";
-                    return $"[{fileName}] â€” VASP {calcType}  E = {e:F3} eV{perAtom}";
+                    return $"[{fileName}]=> VASP {calcType}  E = {e:F3} eV{perAtom}";
                 }
-                return $"[{fileName}] â€” VASP {calcType}";
+                return $"[{fileName}]=> VASP {calcType}";
             }
 
             string s = summary == null ? string.Empty
                 : $"{summary.Software}  {summary.Method ?? "?"}/{summary.BasisSet ?? "?"}  {summary.CalcType ?? ""}  {summary.Spin ?? ""}".Trim();
-            return string.IsNullOrEmpty(s) ? fileName : $"{fileName}  â€”  {s}";
+            return string.IsNullOrEmpty(s) ? fileName : $"{fileName}=>  {s}";
         }
     }
 }
-

@@ -8,6 +8,7 @@ namespace QuantumAnalyzer.ShellExtension.Models
         public Molecule Molecule { get; set; }
         public List<Molecule> MoleculeFrames { get; set; }
         public List<string> MoleculeFrameNames { get; set; }
+        public List<double> OptimizationStepEnergiesEV { get; set; }
         public VolumetricGrid VolumetricData { get; set; }
         public LatticeCell    CrystalData    { get; set; }
         public OutcarData     OutcarStepData { get; set; }

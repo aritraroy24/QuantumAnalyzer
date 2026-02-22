@@ -22,16 +22,22 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
         private readonly Label      _stepInfoLabel;
 
         private readonly OutcarData _outcarData;
+        private readonly string _energyUnit;
         private int   _selectedStep;
         private Color _background = Color.FromArgb(18, 18, 30);
 
-        public SaveEnergyProfileDialog(OutcarData outcarData, int initialSelectedStep)
+        public SaveEnergyProfileDialog(
+            OutcarData outcarData,
+            int initialSelectedStep,
+            string energyUnit = "eV",
+            string title = "Save Energy Profile")
         {
             _outcarData   = outcarData;
+            _energyUnit   = string.IsNullOrWhiteSpace(energyUnit) ? "eV" : energyUnit;
             _selectedStep = Math.Max(0, Math.Min(initialSelectedStep,
                 (outcarData?.StepEnergies?.Count ?? 1) - 1));
 
-            Text            = "Save Energy Profile — OUTCAR";
+            Text            = title;
             Size            = new Size(920, 560);
             MinimumSize     = new Size(600, 420);
             StartPosition   = FormStartPosition.CenterScreen;
@@ -163,7 +169,7 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
             if (_outcarData?.StepEnergies?.Count > 0)
                 OutcarPreviewControl.DrawEnergyGraph(
                     g, _graphPicture.Width, _graphPicture.Height,
-                    _outcarData, _selectedStep, _background);
+                    _outcarData, _selectedStep, _background, _energyUnit);
         }
 
         private void RefreshGraph() => _graphPicture.Invalidate();
@@ -177,7 +183,7 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
             }
             int n   = _outcarData.StepEnergies.Count;
             int sel = Math.Max(0, Math.Min(_selectedStep, n - 1));
-            _stepInfoLabel.Text = $"Step {sel + 1} / {n}   E = {_outcarData.StepEnergies[sel]:F6} eV";
+            _stepInfoLabel.Text = $"Step {sel + 1} / {n}   E = {_outcarData.StepEnergies[sel]:F6} {_energyUnit}";
         }
 
         // ── Graph click ───────────────────────────────────────────────────────
@@ -188,7 +194,7 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
             int n = _outcarData.StepEnergies.Count;
             if (n < 2) return;
 
-            const int ml = 55, mr = 15;
+            const int ml = 62, mr = 24;
             int chartW = _graphPicture.Width - ml - mr;
             if (chartW <= 0) return;
 
@@ -239,7 +245,7 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
                     g.Clear(_background);
                     if (_outcarData?.StepEnergies?.Count > 0)
                         OutcarPreviewControl.DrawEnergyGraph(
-                            g, saveW, saveH, _outcarData, _selectedStep, _background);
+                            g, saveW, saveH, _outcarData, _selectedStep, _background, _energyUnit);
 
                     ImageFormat imgFmt = fmt == "TIFF" ? ImageFormat.Tiff
                                        : fmt == "JPEG" ? ImageFormat.Jpeg

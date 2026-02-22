@@ -301,8 +301,7 @@ namespace QuantumAnalyzer.ShellExtension.Rendering
                 if (showVectors && crystal != null)
                     DrawCornerVectorIndicator(g, crystal, combinedRot, background, molecule, width, height, baseRadius);
 
-                if (crystal != null)
-                    DrawLatticeLengths(g, crystal, width, wireColor);
+                // DrawLatticeLengths(g, crystal, width, wireColor); // moved to top info panel
 
                 if (hasMolecule)
                     MoleculeRenderer.DrawLegend(g, molecule, width, height, baseRadius, background);

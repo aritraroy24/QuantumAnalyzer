@@ -93,7 +93,7 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
                 Font = new Font("Segoe UI", 8f),
             };
 
-            int moleculePanelHeight = HasMultipleFrames ? 72 : 38;
+            int moleculePanelHeight = HasMultipleFrames ? 76 : 38;
             _bottomPanel = new Panel
             {
                 Dock = DockStyle.Bottom,
@@ -235,7 +235,7 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
                     AutoSize = false,
                     Width = 80,
                     Height = 16,
-                    Location = new Point(6, 36),
+                    Location = new Point(6, 38),
                     ForeColor = Color.FromArgb(180, 180, 200),
                     Font = new Font("Segoe UI", 8f),
                     TextAlign = ContentAlignment.MiddleLeft,
@@ -249,7 +249,7 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
                     Value = 0,
                     TickStyle = TickStyle.None,
                     Height = 24,
-                    Location = new Point(90, 30),
+                    Location = new Point(90, 34),
                 };
                 _frameSlider.Scroll += OnFrameSliderScroll;
                 _bottomPanel.Controls.Add(_frameSlider);
@@ -281,10 +281,10 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
             int sliderX = 6 + nameWidth + (nameWidth > 0 ? 4 : 0);
             int sliderWidth = Math.Max(60, _bottomPanel.ClientSize.Width - sliderX - rightPad - labelWidth);
             if (_frameNameLabel != null)
-                _frameNameLabel.Location = new Point(6, 36);
-            _frameSlider.Location = new Point(sliderX, 30);
+                _frameNameLabel.Location = new Point(6, 38);
+            _frameSlider.Location = new Point(sliderX, 34);
             _frameSlider.Width = sliderWidth;
-            _frameLabel.Location = new Point(sliderX + sliderWidth, 36);
+            _frameLabel.Location = new Point(sliderX + sliderWidth, 38);
         }
 
         private void BuildFormatSaveRow(int rowY)
@@ -805,7 +805,6 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
         }
     }
 }
-
 
 
 

@@ -572,15 +572,16 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
         /// </summary>
         internal static void DrawEnergyGraph(
             Graphics g, int gw, int gh,
-            OutcarData outcarData, int selectedStep, Color background)
+            OutcarData outcarData, int selectedStep, Color background, string energyUnit = "eV")
         {
             int n = outcarData.StepEnergies.Count;
             if (n < 1) return;
+            bool isAu = string.Equals(energyUnit, "au", StringComparison.OrdinalIgnoreCase);
 
             float lum = 0.299f * background.R + 0.587f * background.G + 0.114f * background.B;
             Color textColor = lum > 128f ? Color.Black : Color.White;
 
-            const int ml = 55, mr = 15, mt = 10, mb = 28;
+            const int ml = 62, mr = 24, mt = 10, mb = 28;
             var chartRect = new Rectangle(ml, mt, gw - ml - mr, gh - mt - mb);
             if (chartRect.Width < 2 || chartRect.Height < 2) return;
 
@@ -633,7 +634,7 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
             // Energy annotation next to the indicator line
             if (sel < outcarData.StepEnergies.Count)
             {
-                string eLabel = $"E = {outcarData.StepEnergies[sel]:F4} eV";
+                string eLabel = "E = " + outcarData.StepEnergies[sel].ToString(isAu ? "F6" : "F4") + " " + energyUnit;
                 using (var ef = new Font("Segoe UI", 7.5f, FontStyle.Bold))
                 using (var eb = new SolidBrush(Color.Cyan))
                 {
@@ -642,6 +643,8 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
                     float ty = chartRect.Top + 3f;
                     if (tx + ts.Width > chartRect.Right)
                         tx = pts[sel].X - 5f - ts.Width;
+                    if (tx < chartRect.Left + 6f)
+                        tx = chartRect.Left + 6f;
                     g.DrawString(eLabel, ef, eb, tx, ty);
                 }
             }
@@ -667,7 +670,7 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
                 {
                     double eVal = minE + rangeE * yi / 4.0;
                     float  y    = energyToY(eVal);
-                    g.DrawString($"{eVal:F2}", labelFont, labelBrush,
+                    g.DrawString(eVal.ToString(isAu ? "F4" : "F2"), labelFont, labelBrush,
                         new RectangleF(0, y - 8, ml - 3, 16), sf);
                 }
             }
@@ -694,10 +697,10 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
                     new StringFormat { Alignment = StringAlignment.Center });
                 // Y-axis title (rotated)
                 var state = g.Save();
-                g.TranslateTransform(10, chartRect.Top + chartRect.Height / 2f);
+                g.TranslateTransform(14, chartRect.Top + chartRect.Height / 2f);
                 g.RotateTransform(-90);
-                g.DrawString("Energy (eV)", labelFont, labelBrush,
-                    new RectangleF(-40, -8, 80, 16),
+                g.DrawString("Energy (" + energyUnit + ")", labelFont, labelBrush,
+                    new RectangleF(-46, -8, 92, 16),
                     new StringFormat { Alignment = StringAlignment.Center });
                 g.Restore(state);
             }
@@ -718,7 +721,7 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
             int n = _outcarData.StepEnergies.Count;
             if (n < 2) return;
 
-            const int ml = 55, mr = 15;
+            const int ml = 62, mr = 24;
             int chartW = _graphPicture.Width - ml - mr;
             if (chartW <= 0) return;
 

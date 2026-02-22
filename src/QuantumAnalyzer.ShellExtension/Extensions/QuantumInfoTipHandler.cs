@@ -26,22 +26,7 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
     {
         protected override string GetInfo(RequestedInfoType requestedInfoType, bool singleLine)
         {
-            try
-            {
-                string ext = Path.GetExtension(SelectedItemPath ?? "")?.ToLowerInvariant() ?? "";
-                if (ext == ".xyz") return string.Empty;
-
-                var result = ParserFactory.TryParse(SelectedItemPath);
-                if (result == null || result.Summary == null) return string.Empty;
-
-                return singleLine
-                    ? FormatSingleLine(result.Summary)
-                    : FormatMultiLine(result.Summary, SelectedItemPath);
-            }
-            catch
-            {
-                return string.Empty;
-            }
+            return string.Empty;
         }
 
         // ──────────────────────────────────────────────────────────────────

@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Drawing;
+using System.IO;
 using System.Windows.Forms;
 using SharpShell.SharpPreviewHandler;
 using QuantumAnalyzer.ShellExtension.Models;
@@ -20,8 +21,22 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
     {
         private PictureBox _picture;
         private Label _label;
+        private Panel _titleSeparator;
+        private Panel _infoPanel;
+        private Label _infoLeftHeader;
+        private Label _infoMidHeader;
+        private Label _infoRightHeader;
+        private Panel _infoLeftDivider;
+        private Panel _infoMidDivider;
+        private Panel _infoRightDivider;
+        private Label _infoLeft;
+        private Label _infoMid;
+        private Label _infoRight;
+        private PictureBox _energyGraphPicture;
         private Panel _bottomPanel;
         private Button _bgButton;
+        private Button _prevBtn;
+        private Button _nextBtn;
         private TrackBar _frameSlider;
         private Label _frameNameLabel;
         private Label _frameValueLabel;
@@ -31,11 +46,17 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
         private List<string> _moleculeFrameNames;
         private int _currentFrameIndex;
         private string _baseLabel;
+        private QuantumSummary _summary;
+        private string _sourcePath;
+        private List<double> _optimizationStepEnergiesEv;
+        private int _selectedOptimizationStep;
+        private bool _usingOptimizationStepNavigation;
         private float _fixedScale = 0f;
         private float _zoomFactor = 1.0f;
         private Color _background = Color.FromArgb(18, 18, 30);
         private const float StepDeg = 0.5f;
         private const int TickMs = 33;
+        private const double HartreeToEv = 27.211385;
 
         private float[,] _rotMatrix;
 
@@ -60,6 +81,24 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
                 Padding = new Padding(4, 0, 4, 0),
             };
 
+            _titleSeparator = new Panel
+            {
+                Dock = DockStyle.Top,
+                Height = 10,
+                BackColor = Color.FromArgb(10, 10, 20),
+            };
+            _titleSeparator.Paint += (s, e) =>
+            {
+                int y1 = 2;
+                int y2 = 4;
+                using (var p1 = new Pen(Color.FromArgb(95, 95, 120), 1f))
+                using (var p2 = new Pen(Color.FromArgb(55, 55, 75), 1f))
+                {
+                    e.Graphics.DrawLine(p1, 0, y1, _titleSeparator.Width, y1);
+                    e.Graphics.DrawLine(p2, 0, y2, _titleSeparator.Width, y2);
+                }
+            };
+
             _picture = new PictureBox
             {
                 Dock = DockStyle.Fill,
@@ -67,19 +106,127 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
                 BackColor = Color.FromArgb(18, 18, 30),
             };
 
+            _infoPanel = new Panel
+            {
+                Dock = DockStyle.Top,
+                Height = 0,
+                BackColor = Color.FromArgb(8, 8, 16),
+                Visible = false,
+            };
+
+            _infoLeftHeader = CreateInfoHeader("GENERAL");
+            _infoMidHeader = CreateInfoHeader("MODEL");
+            _infoRightHeader = CreateInfoHeader("ENERGY");
+            _infoLeftDivider = CreateInfoDivider();
+            _infoMidDivider = CreateInfoDivider();
+            _infoRightDivider = CreateInfoDivider();
+
+            _infoLeft = new Label
+            {
+                AutoSize = false,
+                ForeColor = Color.FromArgb(180, 180, 200),
+                Font = new Font("Consolas", 8f),
+                TextAlign = ContentAlignment.TopLeft,
+            };
+            _infoMid = new Label
+            {
+                AutoSize = false,
+                ForeColor = Color.FromArgb(180, 180, 200),
+                Font = new Font("Consolas", 8f),
+                TextAlign = ContentAlignment.TopLeft,
+            };
+            _infoRight = new Label
+            {
+                AutoSize = false,
+                ForeColor = Color.FromArgb(180, 180, 200),
+                Font = new Font("Consolas", 8f),
+                TextAlign = ContentAlignment.TopLeft,
+            };
+            _infoPanel.Controls.Add(_infoLeftHeader);
+            _infoPanel.Controls.Add(_infoMidHeader);
+            _infoPanel.Controls.Add(_infoRightHeader);
+            _infoPanel.Controls.Add(_infoLeftDivider);
+            _infoPanel.Controls.Add(_infoMidDivider);
+            _infoPanel.Controls.Add(_infoRightDivider);
+            _infoPanel.Controls.Add(_infoLeft);
+            _infoPanel.Controls.Add(_infoMid);
+            _infoPanel.Controls.Add(_infoRight);
+            _infoPanel.Resize += (s, e) =>
+            {
+                int pad = 8;
+                int gap = 12;
+                int third = Math.Max(40, (_infoPanel.ClientSize.Width - (pad * 2) - (gap * 2)) / 3);
+                int headerH = 16;
+                int dividerH = 1;
+                int bodyY = 6 + headerH + 4 + dividerH + 5;
+                int colH = Math.Max(10, _infoPanel.ClientSize.Height - bodyY - 4);
+
+                int x1 = pad;
+                int x2 = pad + third + gap;
+                int x3 = pad + (third * 2) + (gap * 2);
+
+                _infoLeftHeader.SetBounds(x1, 6, third, headerH);
+                _infoMidHeader.SetBounds(x2, 6, third, headerH);
+                _infoRightHeader.SetBounds(x3, 6, third, headerH);
+
+                _infoLeftDivider.SetBounds(x1, 6 + headerH + 4, third, dividerH);
+                _infoMidDivider.SetBounds(x2, 6 + headerH + 4, third, dividerH);
+                _infoRightDivider.SetBounds(x3, 6 + headerH + 4, third, dividerH);
+
+                _infoLeft.SetBounds(x1, bodyY, third, colH);
+                _infoMid.SetBounds(x2, bodyY, third, colH);
+                _infoRight.SetBounds(x3, bodyY, third, colH);
+            };
+
+            _energyGraphPicture = new PictureBox
+            {
+                Dock = DockStyle.Bottom,
+                Height = 0,
+                BackColor = Color.FromArgb(12, 12, 24),
+                Visible = false,
+            };
+            _energyGraphPicture.MouseDown += OnEnergyGraphClick;
+
             _bottomPanel = new Panel
             {
                 Dock = DockStyle.Bottom,
-                Height = 32,
+                Height = 38,
                 BackColor = Color.FromArgb(10, 10, 20),
             };
+
+            _prevBtn = new Button
+            {
+                Text = "<",
+                Width = 24,
+                Height = 22,
+                FlatStyle = FlatStyle.Flat,
+                Font = new Font("Segoe UI", 8f),
+                ForeColor = Color.FromArgb(180, 180, 200),
+                Visible = false,
+            };
+            _prevBtn.FlatAppearance.BorderColor = Color.Gray;
+            _prevBtn.Click += (s, e) => ChangeFrameBy(-1);
+            _bottomPanel.Controls.Add(_prevBtn);
+
+            _nextBtn = new Button
+            {
+                Text = ">",
+                Width = 24,
+                Height = 22,
+                FlatStyle = FlatStyle.Flat,
+                Font = new Font("Segoe UI", 8f),
+                ForeColor = Color.FromArgb(180, 180, 200),
+                Visible = false,
+            };
+            _nextBtn.FlatAppearance.BorderColor = Color.Gray;
+            _nextBtn.Click += (s, e) => ChangeFrameBy(+1);
+            _bottomPanel.Controls.Add(_nextBtn);
 
             _bgButton = new Button
             {
                 Text = "BG",
                 Width = 36,
                 Height = 22,
-                Location = new Point(6, 5),
                 FlatStyle = FlatStyle.Flat,
                 Font = new Font("Segoe UI", 8f),
                 ForeColor = Color.FromArgb(180, 180, 200),
@@ -91,9 +238,8 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
             _frameNameLabel = new Label
             {
                 AutoSize = false,
-                Width = 90,
+                Width = 108,
                 Height = 18,
-                Location = new Point(48, 6),
                 ForeColor = Color.FromArgb(180, 180, 200),
                 Font = new Font("Segoe UI", 8f),
                 TextAlign = ContentAlignment.MiddleLeft,
@@ -116,7 +262,7 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
             _frameValueLabel = new Label
             {
                 AutoSize = false,
-                Width = 56,
+                Width = 72,
                 Height = 18,
                 ForeColor = Color.FromArgb(180, 180, 200),
                 Font = new Font("Segoe UI", 8f),
@@ -128,7 +274,10 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
             _bottomPanel.Resize += (s, e) => LayoutBottomPanel();
 
             Controls.Add(_picture);
+            Controls.Add(_energyGraphPicture);
             Controls.Add(_bottomPanel);
+            Controls.Add(_infoPanel);
+            Controls.Add(_titleSeparator);
             Controls.Add(_label);
 
             _picture.MouseDown += OnPictureMouseDown;
@@ -143,29 +292,56 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
         }
 
         /// <summary>Called by QuantumPreviewHandler after it parses the file.</summary>
-        public void SetMolecule(Molecule molecule, string displayLabel)
+        public void SetMolecule(
+            Molecule molecule,
+            string displayLabel,
+            QuantumSummary summary = null,
+            string sourcePath = null,
+            List<double> optimizationStepEnergiesEv = null)
         {
             _moleculeFrames = null;
             _moleculeFrameNames = null;
             _baseLabel = displayLabel;
             _currentFrameIndex = 0;
+            _summary = summary;
+            _sourcePath = sourcePath;
+            _optimizationStepEnergiesEv = optimizationStepEnergiesEv;
+            _selectedOptimizationStep = (_optimizationStepEnergiesEv != null && _optimizationStepEnergiesEv.Count > 0)
+                ? _optimizationStepEnergiesEv.Count - 1
+                : 0;
 
-            ConfigureFrameUi(false);
+            ConfigureFrameUi(false, _optimizationStepEnergiesEv != null && _optimizationStepEnergiesEv.Count > 1);
             _molecule = molecule;
+            ApplyInfoSummary();
+            ConfigureEnergyGraphUi();
             UpdateTitle();
             StartOrStopRendering(resetRotation: true);
         }
 
         /// <summary>Sets trajectory-like multiple molecules (used for multi-structure XYZ).</summary>
-        public void SetMolecules(List<Molecule> molecules, List<string> frameNames, string displayLabel)
+        public void SetMolecules(
+            List<Molecule> molecules,
+            List<string> frameNames,
+            string displayLabel,
+            QuantumSummary summary = null,
+            string sourcePath = null,
+            List<double> optimizationStepEnergiesEv = null)
         {
             _moleculeFrames = molecules;
             _moleculeFrameNames = frameNames;
             _baseLabel = displayLabel;
             _currentFrameIndex = 0;
+            _summary = summary;
+            _sourcePath = sourcePath;
+            _optimizationStepEnergiesEv = optimizationStepEnergiesEv;
+            _selectedOptimizationStep = (_optimizationStepEnergiesEv != null && _optimizationStepEnergiesEv.Count > 0)
+                ? _optimizationStepEnergiesEv.Count - 1
+                : 0;
 
             bool hasMultiple = _moleculeFrames != null && _moleculeFrames.Count > 1;
-            ConfigureFrameUi(hasMultiple);
+            ConfigureFrameUi(hasMultiple, !hasMultiple && _optimizationStepEnergiesEv != null && _optimizationStepEnergiesEv.Count > 1);
+            ApplyInfoSummary();
+            ConfigureEnergyGraphUi();
 
             if (_moleculeFrames == null || _moleculeFrames.Count == 0)
             {
@@ -178,39 +354,62 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
             SetCurrentFrame(0, resetRotation: true);
         }
 
-        private void ConfigureFrameUi(bool show)
+        private void ConfigureFrameUi(bool showFrames, bool showOptimizationSteps)
         {
+            _usingOptimizationStepNavigation = !showFrames && showOptimizationSteps;
+            bool show = showFrames || _usingOptimizationStepNavigation;
             _frameSlider.Visible = show;
+            _prevBtn.Visible = show;
+            _nextBtn.Visible = show;
             _frameNameLabel.Visible = show;
             _frameValueLabel.Visible = show;
-            _bottomPanel.Height = show ? 58 : 32;
+            _bottomPanel.Height = show ? 90 : 38;
             LayoutBottomPanel();
 
-            if (show && _moleculeFrames != null && _moleculeFrames.Count > 1)
+            if (showFrames && _moleculeFrames != null && _moleculeFrames.Count > 1)
             {
                 _frameSlider.Minimum = 0;
                 _frameSlider.Maximum = _moleculeFrames.Count - 1;
                 _frameSlider.Value = Math.Min(_frameSlider.Maximum, _currentFrameIndex);
+                _frameNameLabel.Text = "Frame";
+                _frameValueLabel.Text = (_currentFrameIndex + 1) + "/" + _moleculeFrames.Count;
+            }
+            else if (_usingOptimizationStepNavigation && _optimizationStepEnergiesEv != null && _optimizationStepEnergiesEv.Count > 1)
+            {
+                _frameSlider.Minimum = 0;
+                _frameSlider.Maximum = _optimizationStepEnergiesEv.Count - 1;
+                _frameSlider.Value = Math.Max(0, Math.Min(_frameSlider.Maximum, _selectedOptimizationStep));
+                _frameNameLabel.Text = "Step";
+                _frameValueLabel.Text = (_frameSlider.Value + 1) + "/" + _optimizationStepEnergiesEv.Count;
             }
         }
 
         private void LayoutBottomPanel()
         {
-            _bgButton.Location = new Point(6, 5);
+            int panelW = Math.Max(_bottomPanel.ClientSize.Width, 120);
+            if (!_frameSlider.Visible)
+            {
+                _bgButton.Location = new Point(6, 8);
+                return;
+            }
 
-            if (!_frameSlider.Visible) return;
+            const int navY = 6;
+            const int sliderY = 30;
+            const int bgY = 62;
+            const int left = 6;
+            const int gap = 4;
+            const int right = 6;
 
-            _frameNameLabel.Location = new Point(48, 6);
+            _prevBtn.Location = new Point(left, navY);
+            _nextBtn.Location = new Point(_prevBtn.Right + gap, navY);
+            _frameNameLabel.Location = new Point(_nextBtn.Right + 6, navY + 2);
+            _frameNameLabel.Width = Math.Max(80, Math.Min(180, panelW / 3));
 
-            int left = 6;
-            int rightMargin = 6;
-            int valueWidth = 56;
-            int y = 28;
-            int sliderX = left;
-            int sliderW = Math.Max(80, _bottomPanel.ClientSize.Width - left - rightMargin - valueWidth);
-            _frameSlider.Location = new Point(sliderX, y);
-            _frameSlider.Width = sliderW;
-            _frameValueLabel.Location = new Point(sliderX + sliderW, y + 2);
+            _frameValueLabel.Location = new Point(panelW - right - _frameValueLabel.Width, navY + 2);
+            _frameSlider.Location = new Point(left, sliderY);
+            _frameSlider.Width = Math.Max(90, panelW - left - right);
+
+            _bgButton.Location = new Point(left, bgY);
         }
 
         private void SetCurrentFrame(int index, bool resetRotation)
@@ -234,6 +433,9 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
                     _frameNameLabel.Text = frameName;
             }
 
+            if (_optimizationStepEnergiesEv != null && _optimizationStepEnergiesEv.Count > 1)
+                _selectedOptimizationStep = System.Math.Max(0, System.Math.Min(_optimizationStepEnergiesEv.Count - 1, index));
+
             UpdateTitle();
             StartOrStopRendering(resetRotation);
         }
@@ -248,21 +450,13 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
 
         private void UpdateTitle()
         {
-            if (string.IsNullOrEmpty(_baseLabel))
-                _baseLabel = "Molecule";
-
-            if (_moleculeFrames != null && _moleculeFrames.Count > 1)
-            {
-                string suffix = "  [" + (_currentFrameIndex + 1) + "/" + _moleculeFrames.Count + "]";
-                _label.Text = _baseLabel + suffix;
-            }
-            else
-            {
+            string fileName = !string.IsNullOrEmpty(_sourcePath) ? Path.GetFileName(_sourcePath) : null;
+            if (!string.IsNullOrEmpty(fileName))
+                _label.Text = fileName;
+            else if (!string.IsNullOrEmpty(_baseLabel))
                 _label.Text = _baseLabel;
-            }
-
-            if (_molecule == null || !_molecule.HasGeometry)
-                _label.Text += "  (no geometry)";
+            else
+                _label.Text = "Molecule";
         }
 
         private void StartOrStopRendering(bool resetRotation)
@@ -329,7 +523,77 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
         private void OnFrameSliderScroll(object sender, EventArgs e)
         {
             if (!_frameSlider.Visible) return;
-            SetCurrentFrame(_frameSlider.Value, resetRotation: false);
+            if (_usingOptimizationStepNavigation)
+            {
+                SetSelectedOptimizationStep(_frameSlider.Value, updateSlider: false);
+            }
+            else
+            {
+                SetCurrentFrame(_frameSlider.Value, resetRotation: false);
+            }
+        }
+
+        private void ChangeFrameBy(int delta)
+        {
+            if (!_frameSlider.Visible) return;
+            int next = _frameSlider.Value + delta;
+            next = Math.Max(_frameSlider.Minimum, Math.Min(_frameSlider.Maximum, next));
+            if (next == _frameSlider.Value) return;
+
+            if (_usingOptimizationStepNavigation)
+            {
+                SetSelectedOptimizationStep(next, updateSlider: true);
+            }
+            else
+            {
+                SetCurrentFrame(next, resetRotation: false);
+            }
+        }
+
+        private void SetSelectedOptimizationStep(int step, bool updateSlider)
+        {
+            if (_optimizationStepEnergiesEv == null || _optimizationStepEnergiesEv.Count < 2) return;
+            if (step < 0) step = 0;
+            if (step >= _optimizationStepEnergiesEv.Count) step = _optimizationStepEnergiesEv.Count - 1;
+            _selectedOptimizationStep = step;
+
+            if (_usingOptimizationStepNavigation)
+            {
+                if (updateSlider && _frameSlider.Value != step)
+                    _frameSlider.Value = step;
+                _frameNameLabel.Text = "Step";
+                _frameValueLabel.Text = (step + 1) + "/" + _optimizationStepEnergiesEv.Count;
+            }
+
+            RenderEnergyGraph();
+        }
+
+        private void OnEnergyGraphClick(object sender, MouseEventArgs e)
+        {
+            if (_optimizationStepEnergiesEv == null || _optimizationStepEnergiesEv.Count < 2)
+                return;
+
+            int n = _optimizationStepEnergiesEv.Count;
+            const int ml = 62;
+            const int mr = 24;
+            int chartW = _energyGraphPicture.Width - ml - mr;
+            if (chartW <= 0) return;
+
+            float relX = e.X - ml;
+            int step = (int)System.Math.Round(relX / chartW * (n - 1));
+            step = System.Math.Max(0, System.Math.Min(n - 1, step));
+            if (_usingOptimizationStepNavigation)
+            {
+                SetSelectedOptimizationStep(step, updateSlider: true);
+            }
+            else if (_moleculeFrames != null && _moleculeFrames.Count > 1)
+            {
+                SetCurrentFrame(System.Math.Min(step, _moleculeFrames.Count - 1), resetRotation: false);
+            }
+            else
+            {
+                SetSelectedOptimizationStep(step, updateSlider: false);
+            }
         }
 
         private void RenderFrame(bool lowQuality = false)
@@ -348,6 +612,8 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
             catch
             {
             }
+
+            RenderEnergyGraph();
         }
 
         protected override void OnResize(EventArgs e)
@@ -393,10 +659,29 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
 
             _label.ForeColor = textColor;
             _label.BackColor = panelBg;
+            _titleSeparator.BackColor = panelBg;
+            _infoPanel.BackColor = panelBg;
             _bottomPanel.BackColor = panelBg;
             _bgButton.ForeColor = textColor;
+            _prevBtn.ForeColor = textColor;
+            _nextBtn.ForeColor = textColor;
             _frameNameLabel.ForeColor = textColor;
             _frameValueLabel.ForeColor = textColor;
+            _infoLeftHeader.ForeColor = textColor;
+            _infoMidHeader.ForeColor = textColor;
+            _infoRightHeader.ForeColor = textColor;
+            Color dividerColor = Color.FromArgb(
+                Math.Max(0, textColor.R - 35),
+                Math.Max(0, textColor.G - 35),
+                Math.Max(0, textColor.B - 35));
+            _infoLeftDivider.BackColor = dividerColor;
+            _infoMidDivider.BackColor = dividerColor;
+            _infoRightDivider.BackColor = dividerColor;
+            _infoLeft.ForeColor = textColor;
+            _infoMid.ForeColor = textColor;
+            _infoRight.ForeColor = textColor;
+            _energyGraphPicture.BackColor = bg;
+            _titleSeparator.Invalidate();
 
             RenderFrame();
         }
@@ -408,11 +693,160 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
                 _timer?.Stop();
                 _timer?.Dispose();
                 _picture?.Image?.Dispose();
+                _energyGraphPicture?.Image?.Dispose();
+                _energyGraphPicture?.Dispose();
                 _picture?.Dispose();
+                _titleSeparator?.Dispose();
+                _infoPanel?.Dispose();
                 _label?.Dispose();
                 _bottomPanel?.Dispose();
             }
             base.Dispose(disposing);
+        }
+
+        private void ApplyInfoSummary()
+        {
+            if (_summary == null)
+            {
+                _infoPanel.Visible = false;
+                _infoPanel.Height = 0;
+                return;
+            }
+
+            bool isOutput = !string.IsNullOrEmpty(_sourcePath)
+                && (string.Equals(System.IO.Path.GetExtension(_sourcePath), ".log", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(System.IO.Path.GetExtension(_sourcePath), ".out", StringComparison.OrdinalIgnoreCase));
+
+            var general = new List<string>();
+            var model = new List<string>();
+            var energy = new List<string>();
+
+            AddField(general, "Software", _summary.Software.ToString());
+            AddField(general, "Type", _summary.CalcType);
+            AddField(general, "Charge", _summary.Charge.ToString());
+            AddField(general, "Spin", _summary.Spin);
+            AddField(general, "Status", _summary.NormalTermination ? "Normal" : "Incomplete");
+
+            AddField(model, "Method", _summary.Method);
+            AddField(model, "Basis", _summary.BasisSet);
+            AddField(model, "Solvation", _summary.Solvation);
+            if (_summary.ImaginaryFreq > 0)
+                AddField(model, "ImagFreq", _summary.ImaginaryFreq.ToString());
+
+            if (_summary.ElectronicEnergy.HasValue)
+                AddField(energy, "E(total)", _summary.ElectronicEnergy.Value.ToString("F6") + " Eh");
+            if (_summary.HomoIndex.HasValue) AddField(energy, "HOMO", _summary.HomoIndex.Value.ToString());
+            if (_summary.LumoIndex.HasValue) AddField(energy, "LUMO", _summary.LumoIndex.Value.ToString());
+            if (_summary.HomoLumoGap.HasValue) AddField(energy, "Gap", _summary.HomoLumoGap.Value.ToString("F3") + " eV");
+            if (_optimizationStepEnergiesEv != null && _optimizationStepEnergiesEv.Count > 1)
+            {
+                string unit = GetProfileEnergyUnit();
+                var profileEnergies = GetProfileEnergiesForDisplay();
+                AddField(energy, "OptSteps", _optimizationStepEnergiesEv.Count.ToString());
+                AddField(energy, "Final(" + unit + ")", profileEnergies[profileEnergies.Count - 1].ToString("F6"));
+            }
+
+            _infoLeft.Text = string.Join(Environment.NewLine, general);
+            _infoMid.Text = string.Join(Environment.NewLine, model);
+            _infoRight.Text = string.Join(Environment.NewLine, energy);
+
+            int lineCount = Math.Max(general.Count, Math.Max(model.Count, energy.Count));
+            _infoPanel.Visible = lineCount > 0;
+            _infoPanel.Height = lineCount > 0 ? Math.Max(isOutput ? 94 : 82, 36 + (lineCount * 14)) : 0;
+            _infoPanel.PerformLayout();
+        }
+
+        private static Label CreateInfoHeader(string text)
+        {
+            return new Label
+            {
+                Text = text,
+                AutoSize = false,
+                TextAlign = ContentAlignment.MiddleCenter,
+                ForeColor = Color.FromArgb(210, 210, 220),
+                Font = new Font("Segoe UI", 8f, FontStyle.Bold),
+            };
+        }
+
+        private static Panel CreateInfoDivider()
+        {
+            return new Panel
+            {
+                BackColor = Color.FromArgb(80, 80, 105),
+                Height = 1,
+            };
+        }
+
+        private static void AddField(List<string> list, string key, string value)
+        {
+            if (string.IsNullOrWhiteSpace(value)) return;
+            const int keyWidth = 9;
+            string clippedKey = key ?? string.Empty;
+            if (clippedKey.Length > keyWidth) clippedKey = clippedKey.Substring(0, keyWidth);
+            list.Add(clippedKey.PadRight(keyWidth) + " : " + value.Trim());
+        }
+
+        private void ConfigureEnergyGraphUi()
+        {
+            bool show = _optimizationStepEnergiesEv != null && _optimizationStepEnergiesEv.Count > 1;
+            _energyGraphPicture.Visible = show;
+            _energyGraphPicture.Height = show ? 130 : 0;
+            bool canNavigate = _usingOptimizationStepNavigation || (_moleculeFrames != null && _moleculeFrames.Count > 1);
+            _energyGraphPicture.Cursor = show && canNavigate ? Cursors.Hand : Cursors.Default;
+        }
+
+        private void RenderEnergyGraph()
+        {
+            if (!_energyGraphPicture.Visible || _optimizationStepEnergiesEv == null || _optimizationStepEnergiesEv.Count < 2)
+                return;
+
+            int w = Math.Max(_energyGraphPicture.Width, 64);
+            int h = Math.Max(_energyGraphPicture.Height, 64);
+            if (w < 10 || h < 10) return;
+
+            var profileEnergies = GetProfileEnergiesForDisplay();
+            var data = new OutcarData { StepEnergies = profileEnergies };
+            var bmp = new Bitmap(w, h);
+            using (var g = Graphics.FromImage(bmp))
+            {
+                g.Clear(_background);
+                int selectedStep = _selectedOptimizationStep;
+                if (_moleculeFrames != null && _moleculeFrames.Count > 1)
+                    selectedStep = System.Math.Max(0, System.Math.Min(data.StepEnergies.Count - 1, _currentFrameIndex));
+                else if (!_usingOptimizationStepNavigation)
+                    selectedStep = data.StepEnergies.Count - 1;
+                OutcarPreviewControl.DrawEnergyGraph(
+                    g, w, h, data, selectedStep, _background, GetProfileEnergyUnit());
+            }
+            var old = _energyGraphPicture.Image;
+            _energyGraphPicture.Image = bmp;
+            old?.Dispose();
+        }
+
+        private List<double> GetProfileEnergiesForDisplay()
+        {
+            var values = new List<double>();
+            if (_optimizationStepEnergiesEv == null) return values;
+
+            bool useAu = _summary != null &&
+                (_summary.Software == SoftwareType.Gaussian || _summary.Software == SoftwareType.Orca);
+            if (!useAu)
+            {
+                values.AddRange(_optimizationStepEnergiesEv);
+                return values;
+            }
+
+            foreach (double eEv in _optimizationStepEnergiesEv)
+                values.Add(eEv / HartreeToEv);
+            return values;
+        }
+
+        private string GetProfileEnergyUnit()
+        {
+            if (_summary != null &&
+                (_summary.Software == SoftwareType.Gaussian || _summary.Software == SoftwareType.Orca))
+                return "au";
+            return "eV";
         }
 
         private float[] ArcballVec(int px, int py)

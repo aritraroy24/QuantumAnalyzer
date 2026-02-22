@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Drawing;
+using System.IO;
+using System.Linq;
 using System.Windows.Forms;
 using SharpShell.SharpPreviewHandler;
 using QuantumAnalyzer.ShellExtension.Chemistry;
@@ -26,6 +28,8 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
         // ── Widgets ──────────────────────────────────────────────────────────
         private PictureBox _picture;
         private Label      _label;
+        private Panel      _titleSeparator;
+        private PreviewInfoPanel _infoPanel;
         private Panel      _bottomPanel;
         private Button     _bgButton;
         private Timer      _timer;
@@ -84,6 +88,25 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
                 Padding   = new Padding(4, 0, 4, 0),
             };
 
+            _titleSeparator = new Panel
+            {
+                Dock = DockStyle.Top,
+                Height = 10,
+                BackColor = Color.FromArgb(10, 10, 20),
+            };
+            _titleSeparator.Paint += (s, e) =>
+            {
+                using (var p1 = new Pen(Color.FromArgb(95, 95, 120), 1f))
+                using (var p2 = new Pen(Color.FromArgb(55, 55, 75), 1f))
+                {
+                    e.Graphics.DrawLine(p1, 0, 2, _titleSeparator.Width, 2);
+                    e.Graphics.DrawLine(p2, 0, 4, _titleSeparator.Width, 4);
+                }
+            };
+
+            _infoPanel = new PreviewInfoPanel();
+            _infoPanel.SetHeaders("GENERAL", "MODEL", "LATTICE");
+
             _picture = new PictureBox
             {
                 Dock      = DockStyle.Fill,
@@ -102,6 +125,8 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
 
             Controls.Add(_picture);
             Controls.Add(_bottomPanel);
+            Controls.Add(_infoPanel);
+            Controls.Add(_titleSeparator);
             Controls.Add(_label);
 
             _picture.MouseDown  += OnPictureMouseDown;
@@ -122,8 +147,9 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
             _grid             = grid;
             _crystal          = crystal;
             _expandedMolecule = mol;
-            _label.Text       = displayLabel ?? "CHGCAR";
+            _label.Text       = string.IsNullOrWhiteSpace(displayLabel) ? "CHGCAR" : Path.GetFileName(displayLabel);
             _rotMatrix        = InitialRotation();
+            ApplyInfoSummary();
 
             if (grid != null)
             {
@@ -223,7 +249,7 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
                 ForeColor = Color.FromArgb(180, 180, 200),
                 Font      = new Font("Segoe UI", 8.5f),
             };
-            _chkUnitCell.CheckedChanged += (s, e) => { _showUnitCell = _chkUnitCell.Checked; RenderFrame(false); };
+            _chkUnitCell.CheckedChanged += (s, e) => { _showUnitCell = _chkUnitCell.Checked; ApplyInfoSummary(); RenderFrame(false); };
             _bottomPanel.Controls.Add(_chkUnitCell);
             x += _chkUnitCell.PreferredSize.Width + 8;
 
@@ -295,7 +321,7 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
                 ForeColor = Color.FromArgb(180, 180, 200),
                 Font      = new Font("Segoe UI", 8.5f),
             };
-            _chkVectors.CheckedChanged += (s, e) => { _showVectors = _chkVectors.Checked; RenderFrame(false); };
+            _chkVectors.CheckedChanged += (s, e) => { _showVectors = _chkVectors.Checked; ApplyInfoSummary(); RenderFrame(false); };
             _bottomPanel.Controls.Add(_chkVectors);
         }
 
@@ -305,6 +331,7 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
         {
             _showIso = _chkIso.Checked;
             if (_showIso && _isoTriangles == null) ExtractTriangles();
+            ApplyInfoSummary();
             RenderFrame(lowQuality: false);
         }
 
@@ -313,6 +340,7 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
             _isovalue = _isoSlider.Value / 1000f;
             _isoLabel.Text = _isovalue.ToString("0.000");
             ExtractTriangles();
+            ApplyInfoSummary();
             RenderFrame(lowQuality: false);
         }
 
@@ -336,6 +364,7 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
             _supercell[axis]++;
             _supercellCountLabels[axis].Text = _supercell[axis].ToString();
             ExpandSupercell(_supercell[0], _supercell[1], _supercell[2]);
+            ApplyInfoSummary();
             RenderFrame(lowQuality: false);
         }
 
@@ -345,6 +374,7 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
             _supercell[axis]--;
             _supercellCountLabels[axis].Text = _supercell[axis].ToString();
             ExpandSupercell(_supercell[0], _supercell[1], _supercell[2]);
+            ApplyInfoSummary();
             RenderFrame(lowQuality: false);
         }
 
@@ -474,7 +504,9 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
 
             _label.ForeColor       = textColor;
             _label.BackColor       = panelBg;
+            _titleSeparator.BackColor = panelBg;
             _bottomPanel.BackColor = panelBg;
+            _infoPanel.ApplyTheme(textColor, panelBg);
 
             foreach (Control c in _bottomPanel.Controls)
             {
@@ -482,6 +514,7 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
                 if (c is Button btn) btn.ForeColor = textColor;
                 if (c is CheckBox chk && chk != _chkIso) chk.ForeColor = textColor;
             }
+            _titleSeparator.Invalidate();
 
             RenderFrame(lowQuality: false);
         }
@@ -496,10 +529,45 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
                 _timer?.Dispose();
                 _picture?.Image?.Dispose();
                 _picture?.Dispose();
+                _titleSeparator?.Dispose();
+                _infoPanel?.Dispose();
                 _label?.Dispose();
                 _bottomPanel?.Dispose();
             }
             base.Dispose(disposing);
+        }
+
+        private void ApplyInfoSummary()
+        {
+            var general = new List<string>();
+            var model = new List<string>();
+            var lattice = new List<string>();
+
+            int atomCount = _expandedMolecule?.Atoms?.Count ?? 0;
+            int elemCount = _expandedMolecule?.Atoms?.Select(a => a.Element).Distinct(StringComparer.OrdinalIgnoreCase).Count() ?? 0;
+
+            PreviewInfoPanel.AddField(general, "Type", "CHGCAR");
+            PreviewInfoPanel.AddField(general, "Atoms", atomCount > 0 ? atomCount.ToString() : null);
+            PreviewInfoPanel.AddField(general, "Elements", elemCount > 0 ? elemCount.ToString() : null);
+            if (_grid != null) PreviewInfoPanel.AddField(general, "Grid", $"{_grid.NX}x{_grid.NY}x{_grid.NZ}");
+
+            PreviewInfoPanel.AddField(model, "IsoShow", _showIso ? "On" : "Off");
+            PreviewInfoPanel.AddField(model, "IsoVal", _isovalue.ToString("0.000"));
+            PreviewInfoPanel.AddField(model, "UnitCell", _showUnitCell ? "Shown" : "Hidden");
+            PreviewInfoPanel.AddField(model, "Vectors", _showVectors ? "Shown" : "Hidden");
+            PreviewInfoPanel.AddField(model, "Supercell", $"{_supercell[0]}x{_supercell[1]}x{_supercell[2]}");
+
+            if (_crystal != null)
+            {
+                PreviewInfoPanel.AddField(lattice, "a(A)", _crystal.LengthA.ToString("F3"));
+                PreviewInfoPanel.AddField(lattice, "b(A)", _crystal.LengthB.ToString("F3"));
+                PreviewInfoPanel.AddField(lattice, "c(A)", _crystal.LengthC.ToString("F3"));
+                PreviewInfoPanel.AddField(lattice, "A", $"{_crystal.VectorA[0]:F2},{_crystal.VectorA[1]:F2},{_crystal.VectorA[2]:F2}");
+                PreviewInfoPanel.AddField(lattice, "B", $"{_crystal.VectorB[0]:F2},{_crystal.VectorB[1]:F2},{_crystal.VectorB[2]:F2}");
+                PreviewInfoPanel.AddField(lattice, "C", $"{_crystal.VectorC[0]:F2},{_crystal.VectorC[1]:F2},{_crystal.VectorC[2]:F2}");
+            }
+
+            _infoPanel.SetSections(general, model, lattice);
         }
 
         // ── Arcball helpers ───────────────────────────────────────────────────

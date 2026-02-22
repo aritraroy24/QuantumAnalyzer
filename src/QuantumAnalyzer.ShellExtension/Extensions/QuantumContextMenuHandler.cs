@@ -92,16 +92,16 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
             }
             else if (isOutcarFile)
             {
-                // OUTCAR: Save Summary + Save Structure + Save Energy Profile
+                // OUTCAR: Save Summary + Save Image + Save Energy Profile
                 var saveSummary = new ToolStripMenuItem("Save Summary");
                 saveSummary.Click += OnSaveSummary;
                 TrySetIcon(saveSummary);
                 qa.DropDownItems.Add(saveSummary);
 
-                var saveStructure = new ToolStripMenuItem("Save Structure");
-                saveStructure.Click += OnSaveOutcarStructure;
-                TrySetIcon(saveStructure);
-                qa.DropDownItems.Add(saveStructure);
+                var saveImage = new ToolStripMenuItem("Save Image");
+                saveImage.Click += OnSaveOutcarStructure;
+                TrySetIcon(saveImage);
+                qa.DropDownItems.Add(saveImage);
 
                 var saveEnergy = new ToolStripMenuItem("Save Energy Profile");
                 saveEnergy.Click += OnSaveEnergyProfile;
@@ -126,7 +126,7 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
             }
             else
             {
-                // .log / .out: Save Summary + Save Image
+                // .log / .out: Save Summary + Save Image + Save Energy Profile
                 var saveSummary = new ToolStripMenuItem("Save Summary");
                 saveSummary.Click += OnSaveSummary;
                 TrySetIcon(saveSummary);
@@ -136,6 +136,11 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
                 saveImage.Click += OnSaveImage;
                 TrySetIcon(saveImage);
                 qa.DropDownItems.Add(saveImage);
+
+                var saveEnergy = new ToolStripMenuItem("Save Energy Profile");
+                saveEnergy.Click += OnSaveOutputEnergyProfile;
+                TrySetIcon(saveEnergy);
+                qa.DropDownItems.Add(saveEnergy);
             }
 
             menu.Items.Add(qa);
@@ -326,7 +331,7 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
                     return;
                 }
                 int lastStep = result.OutcarStepData.StepEnergies.Count - 1;
-                using (var dlg = new SaveEnergyProfileDialog(result.OutcarStepData, lastStep))
+                using (var dlg = new SaveEnergyProfileDialog(result.OutcarStepData, lastStep, "eV", "Save Energy Profile - OUTCAR"))
                     dlg.ShowDialog();
             }
             catch (Exception ex)
@@ -336,6 +341,43 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
                     "QuantumAnalyzer", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
+
+        private void OnSaveOutputEnergyProfile(object sender, EventArgs e)
+        {
+            string path = FirstSelectedPath();
+            if (string.IsNullOrEmpty(path)) return;
+            try
+            {
+                var result = ParserFactory.TryParse(path);
+                if (result?.OptimizationStepEnergiesEV == null || result.OptimizationStepEnergiesEV.Count < 2)
+                {
+                    MessageBox.Show("No optimization energy profile found in this output file.",
+                        "QuantumAnalyzer", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
+
+                bool isGaussianOrOrca = result.Summary != null &&
+                    (result.Summary.Software == SoftwareType.Gaussian || result.Summary.Software == SoftwareType.Orca);
+                string unit = isGaussianOrOrca ? "au" : "eV";
+                const double HartreeToEv = 27.211385;
+
+                var data = new OutcarData();
+                foreach (double ev in result.OptimizationStepEnergiesEV)
+                    data.StepEnergies.Add(isGaussianOrOrca ? (ev / HartreeToEv) : ev);
+
+                int lastStep = data.StepEnergies.Count - 1;
+                string title = "Save Energy Profile - Output";
+                using (var dlg = new SaveEnergyProfileDialog(data, lastStep, unit, title))
+                    dlg.ShowDialog();
+            }
+            catch (Exception ex)
+            {
+                WriteDebugLog("OnSaveOutputEnergyProfile ERROR: " + ex.ToString());
+                MessageBox.Show($"Error opening energy profile dialog:\n{ex.Message}",
+                    "QuantumAnalyzer", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
 
         private static LatticeCell BuildCrystalFromOutcar(OutcarData outcarData)
         {

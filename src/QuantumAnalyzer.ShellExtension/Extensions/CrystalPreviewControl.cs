@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Drawing;
+using System.IO;
+using System.Linq;
 using System.Windows.Forms;
 using SharpShell.SharpPreviewHandler;
 using QuantumAnalyzer.ShellExtension.Chemistry;
@@ -22,6 +24,8 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
         // ── Widgets ──────────────────────────────────────────────────────────
         private PictureBox _picture;
         private Label      _label;
+        private Panel      _titleSeparator;
+        private PreviewInfoPanel _infoPanel;
         private Panel      _bottomPanel;
         private Button     _bgButton;
         private Timer      _timer;
@@ -69,6 +73,25 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
                 Padding   = new Padding(4, 0, 4, 0),
             };
 
+            _titleSeparator = new Panel
+            {
+                Dock = DockStyle.Top,
+                Height = 10,
+                BackColor = Color.FromArgb(10, 10, 20),
+            };
+            _titleSeparator.Paint += (s, e) =>
+            {
+                using (var p1 = new Pen(Color.FromArgb(95, 95, 120), 1f))
+                using (var p2 = new Pen(Color.FromArgb(55, 55, 75), 1f))
+                {
+                    e.Graphics.DrawLine(p1, 0, 2, _titleSeparator.Width, 2);
+                    e.Graphics.DrawLine(p2, 0, 4, _titleSeparator.Width, 4);
+                }
+            };
+
+            _infoPanel = new PreviewInfoPanel();
+            _infoPanel.SetHeaders("GENERAL", "MODEL", "LATTICE");
+
             _picture = new PictureBox
             {
                 Dock      = DockStyle.Fill,
@@ -87,6 +110,8 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
 
             Controls.Add(_picture);
             Controls.Add(_bottomPanel);
+            Controls.Add(_infoPanel);
+            Controls.Add(_titleSeparator);
             Controls.Add(_label);
 
             _picture.MouseDown  += OnPictureMouseDown;
@@ -107,8 +132,9 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
         {
             _crystal          = crystal;
             _expandedMolecule = unitCellMolecule;
-            _label.Text       = displayLabel ?? "Crystal Structure";
+            _label.Text       = string.IsNullOrWhiteSpace(displayLabel) ? "Crystal Structure" : Path.GetFileName(displayLabel);
             _rotMatrix        = InitialRotation();
+            ApplyInfoSummary(unitCellMolecule, crystal);
 
             if (unitCellMolecule != null && unitCellMolecule.HasGeometry)
             {
@@ -141,6 +167,7 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
             _chkUnitCell.CheckedChanged += (s, e) =>
             {
                 _showUnitCell = _chkUnitCell.Checked;
+                ApplyInfoSummary(_expandedMolecule, _crystal);
                 RenderFrame();
             };
             _bottomPanel.Controls.Add(_chkUnitCell);
@@ -219,6 +246,7 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
             _chkVectors.CheckedChanged += (s, e) =>
             {
                 _showVectors = _chkVectors.Checked;
+                ApplyInfoSummary(_expandedMolecule, _crystal);
                 RenderFrame();
             };
             _bottomPanel.Controls.Add(_chkVectors);
@@ -247,6 +275,7 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
             _supercell[axis]++;
             _supercellCountLabels[axis].Text = _supercell[axis].ToString();
             ExpandSupercell(_supercell[0], _supercell[1], _supercell[2]);
+            ApplyInfoSummary(_expandedMolecule, _crystal);
             RenderFrame();
         }
 
@@ -256,6 +285,7 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
             _supercell[axis]--;
             _supercellCountLabels[axis].Text = _supercell[axis].ToString();
             ExpandSupercell(_supercell[0], _supercell[1], _supercell[2]);
+            ApplyInfoSummary(_expandedMolecule, _crystal);
             RenderFrame();
         }
 
@@ -381,7 +411,10 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
 
             _label.ForeColor       = textColor;
             _label.BackColor       = panelBg;
+            _titleSeparator.BackColor = panelBg;
             _bottomPanel.BackColor = panelBg;
+            _infoPanel.ApplyTheme(textColor, panelBg);
+            _titleSeparator.Invalidate();
 
             foreach (Control c in _bottomPanel.Controls)
             {
@@ -403,10 +436,46 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
                 _timer?.Dispose();
                 _picture?.Image?.Dispose();
                 _picture?.Dispose();
+                _titleSeparator?.Dispose();
+                _infoPanel?.Dispose();
                 _label?.Dispose();
                 _bottomPanel?.Dispose();
             }
             base.Dispose(disposing);
+        }
+
+        private void ApplyInfoSummary(Molecule unitCellMolecule, LatticeCell crystal)
+        {
+            if (crystal == null)
+            {
+                _infoPanel.SetSections(new List<string>(), new List<string>(), new List<string>());
+                return;
+            }
+
+            var general = new List<string>();
+            var model = new List<string>();
+            var lattice = new List<string>();
+
+            int atomCount = unitCellMolecule?.Atoms?.Count ?? crystal.UnitCellAtoms?.Count ?? 0;
+            int elemCount = unitCellMolecule?.Atoms?.Select(a => a.Element).Distinct(StringComparer.OrdinalIgnoreCase).Count() ?? 0;
+
+            PreviewInfoPanel.AddField(general, "Type", "Crystal");
+            PreviewInfoPanel.AddField(general, "Atoms", atomCount > 0 ? atomCount.ToString() : null);
+            PreviewInfoPanel.AddField(general, "Elements", elemCount > 0 ? elemCount.ToString() : null);
+            PreviewInfoPanel.AddField(general, "CellAtoms", crystal.UnitCellAtoms?.Count.ToString());
+
+            PreviewInfoPanel.AddField(model, "UnitCell", _showUnitCell ? "Shown" : "Hidden");
+            PreviewInfoPanel.AddField(model, "Vectors", _showVectors ? "Shown" : "Hidden");
+            PreviewInfoPanel.AddField(model, "Supercell", $"{_supercell[0]}x{_supercell[1]}x{_supercell[2]}");
+
+            PreviewInfoPanel.AddField(lattice, "a(A)", crystal.LengthA.ToString("F3"));
+            PreviewInfoPanel.AddField(lattice, "b(A)", crystal.LengthB.ToString("F3"));
+            PreviewInfoPanel.AddField(lattice, "c(A)", crystal.LengthC.ToString("F3"));
+            PreviewInfoPanel.AddField(lattice, "A", $"{crystal.VectorA[0]:F2},{crystal.VectorA[1]:F2},{crystal.VectorA[2]:F2}");
+            PreviewInfoPanel.AddField(lattice, "B", $"{crystal.VectorB[0]:F2},{crystal.VectorB[1]:F2},{crystal.VectorB[2]:F2}");
+            PreviewInfoPanel.AddField(lattice, "C", $"{crystal.VectorC[0]:F2},{crystal.VectorC[1]:F2},{crystal.VectorC[2]:F2}");
+
+            _infoPanel.SetSections(general, model, lattice);
         }
 
         // ── Arcball helpers (identical to MoleculePreviewControl) ─────────────

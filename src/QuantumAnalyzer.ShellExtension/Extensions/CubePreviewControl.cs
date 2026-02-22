@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Drawing;
+using System.IO;
+using System.Linq;
 using System.Windows.Forms;
 using SharpShell.SharpPreviewHandler;
 using QuantumAnalyzer.ShellExtension.Models;
@@ -22,6 +24,8 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
         // ── Widgets ──────────────────────────────────────────────────────
         private PictureBox _picture;
         private Label      _label;
+        private Panel      _titleSeparator;
+        private PreviewInfoPanel _infoPanel;
         private Panel      _bottomPanel;
         private CheckBox   _chkPos;
         private CheckBox   _chkNeg;
@@ -68,6 +72,25 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
                 Padding   = new Padding(4, 0, 4, 0),
             };
 
+            _titleSeparator = new Panel
+            {
+                Dock = DockStyle.Top,
+                Height = 10,
+                BackColor = Color.FromArgb(10, 10, 20),
+            };
+            _titleSeparator.Paint += (s, e) =>
+            {
+                using (var p1 = new Pen(Color.FromArgb(95, 95, 120), 1f))
+                using (var p2 = new Pen(Color.FromArgb(55, 55, 75), 1f))
+                {
+                    e.Graphics.DrawLine(p1, 0, 2, _titleSeparator.Width, 2);
+                    e.Graphics.DrawLine(p2, 0, 4, _titleSeparator.Width, 4);
+                }
+            };
+
+            _infoPanel = new PreviewInfoPanel();
+            _infoPanel.SetHeaders("GENERAL", "MODEL", "FIELD");
+
             _picture = new PictureBox
             {
                 Dock      = DockStyle.Fill,
@@ -86,6 +109,8 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
 
             Controls.Add(_picture);
             Controls.Add(_bottomPanel);
+            Controls.Add(_infoPanel);
+            Controls.Add(_titleSeparator);
             Controls.Add(_label);
 
             _picture.MouseDown  += OnPictureMouseDown;
@@ -104,7 +129,8 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
         {
             _molecule = molecule;
             _grid     = grid;
-            _label.Text = displayLabel ?? "Cube file";
+            _label.Text = string.IsNullOrWhiteSpace(displayLabel) ? "Cube file" : Path.GetFileName(displayLabel);
+            ApplyInfoSummary();
 
             if (grid != null)
             {
@@ -317,6 +343,7 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
             _showPos = newPos;
             _showNeg = newNeg;
             if (needExtract) ExtractTriangles();
+            ApplyInfoSummary();
             RenderFrame();
         }
 
@@ -325,6 +352,7 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
             _isovalue = _isoSlider.Value / 1000f;
             _isoLabel.Text = _isovalue.ToString("0.000");
             ExtractTriangles();
+            ApplyInfoSummary();
             RenderFrame();
         }
 
@@ -355,7 +383,9 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
 
             _label.ForeColor       = textColor;
             _label.BackColor       = panelBg;
+            _titleSeparator.BackColor = panelBg;
             _bottomPanel.BackColor = panelBg;
+            _infoPanel.ApplyTheme(textColor, panelBg);
 
             // Update labels and buttons in the bottom panel (CheckBoxes keep their semantic green/red)
             foreach (Control c in _bottomPanel.Controls)
@@ -363,6 +393,7 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
                 if (c is Label lbl) lbl.ForeColor = textColor;
                 if (c is Button btn) btn.ForeColor = textColor;
             }
+            _titleSeparator.Invalidate();
 
             RenderFrame();
         }
@@ -379,10 +410,41 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
                 _timer?.Dispose();
                 _picture?.Image?.Dispose();
                 _picture?.Dispose();
+                _titleSeparator?.Dispose();
+                _infoPanel?.Dispose();
                 _label?.Dispose();
                 _bottomPanel?.Dispose();
             }
             base.Dispose(disposing);
+        }
+
+        private void ApplyInfoSummary()
+        {
+            var general = new List<string>();
+            var model = new List<string>();
+            var field = new List<string>();
+
+            int atomCount = _molecule?.Atoms?.Count ?? 0;
+            int elemCount = _molecule?.Atoms?.Select(a => a.Element).Distinct(StringComparer.OrdinalIgnoreCase).Count() ?? 0;
+            PreviewInfoPanel.AddField(general, "Type", "Cube");
+            PreviewInfoPanel.AddField(general, "Atoms", atomCount > 0 ? atomCount.ToString() : null);
+            PreviewInfoPanel.AddField(general, "Elements", elemCount > 0 ? elemCount.ToString() : null);
+            PreviewInfoPanel.AddField(general, "Data", _grid?.DataLabel);
+
+            PreviewInfoPanel.AddField(model, "Iso", _isovalue.ToString("0.000"));
+            PreviewInfoPanel.AddField(model, "PosLobe", _showPos ? "On" : "Off");
+            PreviewInfoPanel.AddField(model, "NegLobe", _showNeg ? "On" : "Off");
+
+            if (_grid != null)
+            {
+                PreviewInfoPanel.AddField(field, "Grid", $"{_grid.NX}x{_grid.NY}x{_grid.NZ}");
+                PreviewInfoPanel.AddField(field, "Origin", $"{_grid.Origin[0]:F2},{_grid.Origin[1]:F2},{_grid.Origin[2]:F2}");
+                PreviewInfoPanel.AddField(field, "dX", $"{_grid.Axes[0, 0]:F3},{_grid.Axes[0, 1]:F3},{_grid.Axes[0, 2]:F3}");
+                PreviewInfoPanel.AddField(field, "dY", $"{_grid.Axes[1, 0]:F3},{_grid.Axes[1, 1]:F3},{_grid.Axes[1, 2]:F3}");
+                PreviewInfoPanel.AddField(field, "dZ", $"{_grid.Axes[2, 0]:F3},{_grid.Axes[2, 1]:F3},{_grid.Axes[2, 2]:F3}");
+            }
+
+            _infoPanel.SetSections(general, model, field);
         }
 
         // ──────────────────────────────────────────────────────────────────

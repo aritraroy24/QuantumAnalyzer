@@ -165,6 +165,27 @@ namespace QuantumAnalyzer.ShellExtension.Parsers
             if (midOrbitalLines != null && midOrbitalLines.Count > 0)
                 ParseOrbitalEnergies(midOrbitalLines, result.Summary);
 
+            // Large-file mode parses head+tail, which can miss early optimization steps.
+            // Recover the full optimization profile via a lightweight full-stream scan.
+            var fullOptEnergiesEh = ExtractAllFinalSinglePointEnergiesEh(stream);
+            if (fullOptEnergiesEh.Count > 1)
+            {
+                var fullOptEnergiesEv = new List<double>(fullOptEnergiesEh.Count);
+                foreach (double e in fullOptEnergiesEh)
+                    fullOptEnergiesEv.Add(e * HartreeToEv);
+                result.OptimizationStepEnergiesEV = fullOptEnergiesEv;
+            }
+
+            var fullFrames = ExtractAllOrcaCoordinateFrames(stream);
+            if (fullFrames.Count > 1)
+            {
+                result.MoleculeFrames = fullFrames;
+                result.MoleculeFrameNames = new List<string>(fullFrames.Count);
+                for (int i = 0; i < fullFrames.Count; i++)
+                    result.MoleculeFrameNames.Add("Step " + (i + 1));
+                result.Molecule = fullFrames[fullFrames.Count - 1];
+            }
+
             return result;
         }
 
@@ -331,6 +352,98 @@ namespace QuantumAnalyzer.ShellExtension.Parsers
             return lines;
         }
 
+        private static List<double> ExtractAllFinalSinglePointEnergiesEh(Stream stream)
+        {
+            var energies = new List<double>();
+            stream.Seek(0, SeekOrigin.Begin);
+
+            using (var reader = new StreamReader(stream, Encoding.UTF8, false, 4096, true))
+            {
+                string line;
+                while ((line = reader.ReadLine()) != null)
+                {
+                    var m = Regex.Match(line, @"FINAL SINGLE POINT ENERGY\s+([-\d.]+)", RegexOptions.IgnoreCase);
+                    if (!m.Success) continue;
+                    if (double.TryParse(
+                        m.Groups[1].Value,
+                        System.Globalization.NumberStyles.Float,
+                        System.Globalization.CultureInfo.InvariantCulture,
+                        out double e))
+                    {
+                        energies.Add(e);
+                    }
+                }
+            }
+
+            return energies;
+        }
+
+        private static Molecule BuildMoleculeFromOrcaCoordBlock(List<string> coordBlock)
+        {
+            if (coordBlock == null || coordBlock.Count == 0) return null;
+            var molecule = new Molecule();
+            foreach (string ol in coordBlock)
+            {
+                string[] parts = ol.Trim().Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+                if (parts.Length >= 4 &&
+                    double.TryParse(parts[1], System.Globalization.NumberStyles.Float,
+                                    System.Globalization.CultureInfo.InvariantCulture, out double x) &&
+                    double.TryParse(parts[2], System.Globalization.NumberStyles.Float,
+                                    System.Globalization.CultureInfo.InvariantCulture, out double y) &&
+                    double.TryParse(parts[3], System.Globalization.NumberStyles.Float,
+                                    System.Globalization.CultureInfo.InvariantCulture, out double z))
+                {
+                    molecule.Atoms.Add(new Atom(parts[0], x, y, z));
+                }
+            }
+            if (molecule.Atoms.Count == 0) return null;
+            molecule.Bonds = BondDetector.Detect(molecule.Atoms);
+            return molecule;
+        }
+
+        private static List<Molecule> ExtractAllOrcaCoordinateFrames(Stream stream)
+        {
+            var frames = new List<Molecule>();
+            stream.Seek(0, SeekOrigin.Begin);
+
+            using (var reader = new StreamReader(stream, Encoding.UTF8, false, 4096, true))
+            {
+                bool inCoord = false;
+                int skipLines = 0;
+                var block = new List<string>();
+                string line;
+                while ((line = reader.ReadLine()) != null)
+                {
+                    string trimmed = line.Trim();
+                    if (!inCoord)
+                    {
+                        if (line.IndexOf("CARTESIAN COORDINATES (ANGSTROEM)", StringComparison.OrdinalIgnoreCase) >= 0)
+                        {
+                            inCoord = true;
+                            skipLines = 1;
+                            block = new List<string>();
+                        }
+                        continue;
+                    }
+
+                    if (skipLines > 0) { skipLines--; continue; }
+                    if (string.IsNullOrWhiteSpace(trimmed) ||
+                        trimmed.IndexOf("CARTESIAN COORDINATES (A.U.)", StringComparison.OrdinalIgnoreCase) >= 0)
+                    {
+                        inCoord = false;
+                        var mol = BuildMoleculeFromOrcaCoordBlock(block);
+                        if (mol != null && mol.HasGeometry)
+                            frames.Add(mol);
+                        continue;
+                    }
+
+                    block.Add(line);
+                }
+            }
+
+            return frames;
+        }
+
         // ── Full line-by-line parse ───────────────────────────────────────────────
         // Used directly for small files; called with the head+tail slice for large ones.
         private ParseResult ParseFull(TextReader reader)
@@ -341,6 +454,7 @@ namespace QuantumAnalyzer.ShellExtension.Parsers
             // Coordinate block tracking (keep last occurrence)
             var currentCoordBlock = new List<string>();
             var lastCoordBlock    = new List<string>();
+            var allCoordBlocks    = new List<List<string>>();
             bool inCoordBlock = false;
             int coordSkipLines = 0;
 
@@ -361,6 +475,7 @@ namespace QuantumAnalyzer.ShellExtension.Parsers
             bool hasOpt  = false;
             bool normalTermination = false;
             double? kBT = null;
+            var optimizationStepEnergiesEh = new List<double>();
 
             // Buffer all lines so a second pass can handle input files (.inp)
             var allLines = new List<string>();
@@ -440,6 +555,8 @@ namespace QuantumAnalyzer.ShellExtension.Parsers
                     {
                         inCoordBlock = false;
                         lastCoordBlock = new List<string>(currentCoordBlock);
+                        if (currentCoordBlock.Count > 0)
+                            allCoordBlocks.Add(new List<string>(currentCoordBlock));
                         continue;
                     }
                     currentCoordBlock.Add(line);
@@ -452,6 +569,7 @@ namespace QuantumAnalyzer.ShellExtension.Parsers
                 {
                     summary.ElectronicEnergy = double.Parse(energy.Groups[1].Value,
                                                 System.Globalization.CultureInfo.InvariantCulture);
+                    optimizationStepEnergiesEh.Add(summary.ElectronicEnergy.Value);
                 }
                 else if (summary.ElectronicEnergy == null)
                 {
@@ -556,13 +674,51 @@ namespace QuantumAnalyzer.ShellExtension.Parsers
                 summary.AtomCounts = counts;
             }
 
+            // Build per-step geometry frames from all coordinate blocks.
+            List<Molecule> moleculeFrames = null;
+            List<string> moleculeFrameNames = null;
+            if (allCoordBlocks.Count > 1)
+            {
+                moleculeFrames = new List<Molecule>();
+                moleculeFrameNames = new List<string>();
+                int frameNo = 1;
+                foreach (var block in allCoordBlocks)
+                {
+                    var frameMol = BuildMoleculeFromOrcaCoordBlock(block);
+                    if (frameMol == null || !frameMol.HasGeometry) continue;
+                    moleculeFrames.Add(frameMol);
+                    moleculeFrameNames.Add("Step " + frameNo);
+                    frameNo++;
+                }
+                if (moleculeFrames.Count <= 1)
+                {
+                    moleculeFrames = null;
+                    moleculeFrameNames = null;
+                }
+            }
+
             // Input-file fallback: if nothing was parsed (ORCA .inp input file)
             if (summary.ElectronicEnergy == null && molecule.Atoms.Count == 0)
                 TryExtractOrcaInputGeometry(allLines, molecule, summary);
 
             if (summary.ElectronicEnergy == null && molecule.Atoms.Count == 0) return null;
 
-            return new ParseResult { Summary = summary, Molecule = molecule };
+            List<double> optimizationStepEnergiesEv = null;
+            if (optimizationStepEnergiesEh.Count > 1)
+            {
+                optimizationStepEnergiesEv = new List<double>(optimizationStepEnergiesEh.Count);
+                foreach (double e in optimizationStepEnergiesEh)
+                    optimizationStepEnergiesEv.Add(e * HartreeToEv);
+            }
+
+            return new ParseResult
+            {
+                Summary = summary,
+                Molecule = molecule,
+                MoleculeFrames = moleculeFrames,
+                MoleculeFrameNames = moleculeFrameNames,
+                OptimizationStepEnergiesEV = optimizationStepEnergiesEv,
+            };
         }
 
         // ──────────────────────────────────────────────────────────────

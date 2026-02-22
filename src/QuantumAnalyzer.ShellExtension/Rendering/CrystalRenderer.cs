@@ -231,8 +231,7 @@ namespace QuantumAnalyzer.ShellExtension.Rendering
                 }
 
                 // ── 4. Draw a/b/c text overlay (top-right) ────────────────────────
-                if (crystal != null)
-                    DrawLatticeLengths(g, crystal, width, wireColor);
+                // DrawLatticeLengths(g, crystal, width, wireColor); // moved to top info panel
 
                 // ── 5. Draw element legend ─────────────────────────────────────────
                 if (hasMolecule)
