@@ -1,4 +1,5 @@
-using System;
+﻿using System;
+using System.Collections.Generic;
 using System.Drawing;
 using System.Windows.Forms;
 using SharpShell.SharpPreviewHandler;
@@ -14,85 +15,126 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
     ///
     /// Auto-rotation: spins around Y.
     /// Right-click drag: full arcball rotation (X, Y and Z axes).
-    ///   - Drag inside the virtual sphere → X/Y rotation.
-    ///   - Drag near/outside the sphere edge → Z roll.
     /// </summary>
     public class MoleculePreviewControl : PreviewHandlerControl
     {
         private PictureBox _picture;
-        private Label      _label;
-        private Panel      _bottomPanel;
-        private Button     _bgButton;
-        private Timer      _timer;
-        private Molecule   _molecule;
-        private float      _fixedScale = 0f;
-        private float      _zoomFactor = 1.0f;
-        private Color      _background = Color.FromArgb(18, 18, 30);
-        private const float StepDeg = 0.5f;   // degrees per tick for auto-rotation
-        private const int   TickMs  = 33;      // ~30 fps
+        private Label _label;
+        private Panel _bottomPanel;
+        private Button _bgButton;
+        private TrackBar _frameSlider;
+        private Label _frameNameLabel;
+        private Label _frameValueLabel;
+        private Timer _timer;
+        private Molecule _molecule;
+        private List<Molecule> _moleculeFrames;
+        private List<string> _moleculeFrameNames;
+        private int _currentFrameIndex;
+        private string _baseLabel;
+        private float _fixedScale = 0f;
+        private float _zoomFactor = 1.0f;
+        private Color _background = Color.FromArgb(18, 18, 30);
+        private const float StepDeg = 0.5f;
+        private const int TickMs = 33;
 
-        // Accumulated rotation expressed as a 3×3 matrix in PCA-aligned space.
-        // Initialized with a slight X tilt so the molecule has visible depth.
         private float[,] _rotMatrix;
 
-        // Right-click drag state
-        private bool     _isDragging;
-        private float[,] _dragBaseMatrix;   // _rotMatrix snapshot at drag start
-        private float[]  _dragStartVec;     // arcball sphere vector at drag start
+        private bool _isDragging;
+        private float[,] _dragBaseMatrix;
+        private float[] _dragStartVec;
 
         public MoleculePreviewControl()
         {
-            BackColor     = Color.FromArgb(18, 18, 30);
+            BackColor = Color.FromArgb(18, 18, 30);
             DoubleBuffered = true;
 
             _label = new Label
             {
-                Dock      = DockStyle.Top,
-                Height    = 24,
+                Dock = DockStyle.Top,
+                Height = 24,
                 ForeColor = Color.FromArgb(180, 180, 200),
                 BackColor = Color.FromArgb(10, 10, 20),
-                Font      = new Font("Segoe UI", 9f),
+                Font = new Font("Segoe UI", 9f),
                 TextAlign = System.Drawing.ContentAlignment.MiddleCenter,
-                Text      = "Loading…",
-                Padding   = new Padding(4, 0, 4, 0),
+                Text = "Loading...",
+                Padding = new Padding(4, 0, 4, 0),
             };
 
             _picture = new PictureBox
             {
-                Dock      = DockStyle.Fill,
-                SizeMode  = PictureBoxSizeMode.CenterImage,
+                Dock = DockStyle.Fill,
+                SizeMode = PictureBoxSizeMode.CenterImage,
                 BackColor = Color.FromArgb(18, 18, 30),
             };
 
             _bottomPanel = new Panel
             {
-                Dock      = DockStyle.Bottom,
-                Height    = 32,
+                Dock = DockStyle.Bottom,
+                Height = 32,
                 BackColor = Color.FromArgb(10, 10, 20),
             };
 
             _bgButton = new Button
             {
-                Text      = "BG",
-                Width     = 36,
-                Height    = 22,
-                Location  = new System.Drawing.Point(6, 5),
+                Text = "BG",
+                Width = 36,
+                Height = 22,
+                Location = new Point(6, 5),
                 FlatStyle = FlatStyle.Flat,
-                Font      = new Font("Segoe UI", 8f),
+                Font = new Font("Segoe UI", 8f),
                 ForeColor = Color.FromArgb(180, 180, 200),
             };
             _bgButton.FlatAppearance.BorderColor = Color.Silver;
             _bgButton.Click += OnBgButtonClick;
             _bottomPanel.Controls.Add(_bgButton);
 
+            _frameNameLabel = new Label
+            {
+                AutoSize = false,
+                Width = 90,
+                Height = 18,
+                Location = new Point(48, 6),
+                ForeColor = Color.FromArgb(180, 180, 200),
+                Font = new Font("Segoe UI", 8f),
+                TextAlign = ContentAlignment.MiddleLeft,
+                Visible = false,
+            };
+            _bottomPanel.Controls.Add(_frameNameLabel);
+
+            _frameSlider = new TrackBar
+            {
+                Minimum = 0,
+                Maximum = 1,
+                Value = 0,
+                TickStyle = TickStyle.None,
+                Height = 26,
+                Visible = false,
+            };
+            _frameSlider.Scroll += OnFrameSliderScroll;
+            _bottomPanel.Controls.Add(_frameSlider);
+
+            _frameValueLabel = new Label
+            {
+                AutoSize = false,
+                Width = 56,
+                Height = 18,
+                ForeColor = Color.FromArgb(180, 180, 200),
+                Font = new Font("Segoe UI", 8f),
+                TextAlign = ContentAlignment.MiddleRight,
+                Visible = false,
+            };
+            _bottomPanel.Controls.Add(_frameValueLabel);
+
+            _bottomPanel.Resize += (s, e) => LayoutBottomPanel();
+
             Controls.Add(_picture);
             Controls.Add(_bottomPanel);
-            Controls.Add(_label);   // added last so it docks on top
+            Controls.Add(_label);
 
-            _picture.MouseDown  += OnPictureMouseDown;
-            _picture.MouseMove  += OnPictureMouseMove;
-            _picture.MouseUp    += OnPictureMouseUp;
-            _picture.MouseEnter += (s, e) => this.Focus();  // allow parent to receive scroll
+            _picture.MouseDown += OnPictureMouseDown;
+            _picture.MouseMove += OnPictureMouseMove;
+            _picture.MouseUp += OnPictureMouseUp;
+            _picture.MouseEnter += (s, e) => this.Focus();
 
             _timer = new Timer { Interval = TickMs };
             _timer.Tick += OnTick;
@@ -103,29 +145,148 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
         /// <summary>Called by QuantumPreviewHandler after it parses the file.</summary>
         public void SetMolecule(Molecule molecule, string displayLabel)
         {
-            _molecule = molecule;
-            _label.Text = displayLabel;
+            _moleculeFrames = null;
+            _moleculeFrameNames = null;
+            _baseLabel = displayLabel;
+            _currentFrameIndex = 0;
 
-            if (molecule != null && molecule.HasGeometry)
+            ConfigureFrameUi(false);
+            _molecule = molecule;
+            UpdateTitle();
+            StartOrStopRendering(resetRotation: true);
+        }
+
+        /// <summary>Sets trajectory-like multiple molecules (used for multi-structure XYZ).</summary>
+        public void SetMolecules(List<Molecule> molecules, List<string> frameNames, string displayLabel)
+        {
+            _moleculeFrames = molecules;
+            _moleculeFrameNames = frameNames;
+            _baseLabel = displayLabel;
+            _currentFrameIndex = 0;
+
+            bool hasMultiple = _moleculeFrames != null && _moleculeFrames.Count > 1;
+            ConfigureFrameUi(hasMultiple);
+
+            if (_moleculeFrames == null || _moleculeFrames.Count == 0)
             {
+                _molecule = null;
+                UpdateTitle();
+                StartOrStopRendering(resetRotation: true);
+                return;
+            }
+
+            SetCurrentFrame(0, resetRotation: true);
+        }
+
+        private void ConfigureFrameUi(bool show)
+        {
+            _frameSlider.Visible = show;
+            _frameNameLabel.Visible = show;
+            _frameValueLabel.Visible = show;
+            _bottomPanel.Height = show ? 58 : 32;
+            LayoutBottomPanel();
+
+            if (show && _moleculeFrames != null && _moleculeFrames.Count > 1)
+            {
+                _frameSlider.Minimum = 0;
+                _frameSlider.Maximum = _moleculeFrames.Count - 1;
+                _frameSlider.Value = Math.Min(_frameSlider.Maximum, _currentFrameIndex);
+            }
+        }
+
+        private void LayoutBottomPanel()
+        {
+            _bgButton.Location = new Point(6, 5);
+
+            if (!_frameSlider.Visible) return;
+
+            _frameNameLabel.Location = new Point(48, 6);
+
+            int left = 6;
+            int rightMargin = 6;
+            int valueWidth = 56;
+            int y = 28;
+            int sliderX = left;
+            int sliderW = Math.Max(80, _bottomPanel.ClientSize.Width - left - rightMargin - valueWidth);
+            _frameSlider.Location = new Point(sliderX, y);
+            _frameSlider.Width = sliderW;
+            _frameValueLabel.Location = new Point(sliderX + sliderW, y + 2);
+        }
+
+        private void SetCurrentFrame(int index, bool resetRotation)
+        {
+            if (_moleculeFrames == null || _moleculeFrames.Count == 0) return;
+            if (index < 0) index = 0;
+            if (index >= _moleculeFrames.Count) index = _moleculeFrames.Count - 1;
+
+            _currentFrameIndex = index;
+            _molecule = _moleculeFrames[index];
+
+            if (_frameSlider.Visible && _frameSlider.Value != index)
+                _frameSlider.Value = index;
+
+            if (_frameSlider.Visible)
+            {
+                _frameValueLabel.Text = (index + 1).ToString() + "/" + _moleculeFrames.Count;
+                _frameNameLabel.Text = "Frame";
+                string frameName = GetFrameName(index);
+                if (!string.IsNullOrEmpty(frameName))
+                    _frameNameLabel.Text = frameName;
+            }
+
+            UpdateTitle();
+            StartOrStopRendering(resetRotation);
+        }
+
+        private string GetFrameName(int index)
+        {
+            if (_moleculeFrameNames == null || index < 0 || index >= _moleculeFrameNames.Count)
+                return null;
+            string name = _moleculeFrameNames[index];
+            return string.IsNullOrWhiteSpace(name) ? null : name.Trim();
+        }
+
+        private void UpdateTitle()
+        {
+            if (string.IsNullOrEmpty(_baseLabel))
+                _baseLabel = "Molecule";
+
+            if (_moleculeFrames != null && _moleculeFrames.Count > 1)
+            {
+                string suffix = "  [" + (_currentFrameIndex + 1) + "/" + _moleculeFrames.Count + "]";
+                _label.Text = _baseLabel + suffix;
+            }
+            else
+            {
+                _label.Text = _baseLabel;
+            }
+
+            if (_molecule == null || !_molecule.HasGeometry)
+                _label.Text += "  (no geometry)";
+        }
+
+        private void StartOrStopRendering(bool resetRotation)
+        {
+            if (resetRotation)
                 _rotMatrix = InitialRotation();
-                int w = Math.Max(_picture.Width,  64);
+
+            if (_molecule != null && _molecule.HasGeometry)
+            {
+                int w = Math.Max(_picture.Width, 64);
                 int h = Math.Max(_picture.Height, 64);
-                _fixedScale = MoleculeRenderer.ComputeFixedScale(molecule, w, h);
+                _fixedScale = MoleculeRenderer.ComputeFixedScale(_molecule, w, h);
                 _timer.Start();
                 RenderFrame();
             }
             else
             {
-                _label.Text += "  (no geometry)";
+                _timer.Stop();
+                RenderFrame();
             }
         }
 
-        // ──────────────────────────────────────────────────────────────────
-
         private void OnTick(object sender, EventArgs e)
         {
-            // Spin around Y in PCA space (left-multiply keeps it a consistent world-Y spin)
             float step = StepDeg * (float)(Math.PI / 180.0);
             float c = (float)Math.Cos(step);
             float s = (float)Math.Sin(step);
@@ -137,9 +298,9 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
         private void OnPictureMouseDown(object sender, MouseEventArgs e)
         {
             if (e.Button != MouseButtons.Right) return;
-            _isDragging     = true;
+            _isDragging = true;
             _dragBaseMatrix = (float[,])_rotMatrix.Clone();
-            _dragStartVec   = ArcballVec(e.X, e.Y);
+            _dragStartVec = ArcballVec(e.X, e.Y);
             _timer.Stop();
             _picture.Cursor = Cursors.SizeAll;
         }
@@ -147,29 +308,34 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
         private void OnPictureMouseMove(object sender, MouseEventArgs e)
         {
             if (!_isDragging) return;
-            float[]  cur   = ArcballVec(e.X, e.Y);
+            float[] cur = ArcballVec(e.X, e.Y);
             float[,] delta = ArcballRotation(_dragStartVec, cur);
-            // Left-multiply: apply delta in current view space, on top of the base rotation
             _rotMatrix = MatMul3(delta, _dragBaseMatrix);
-            RenderFrame(lowQuality: true);  // flat atoms during drag — much faster for large molecules
+            RenderFrame(lowQuality: true);
         }
 
         private void OnPictureMouseUp(object sender, MouseEventArgs e)
         {
             if (e.Button != MouseButtons.Right || !_isDragging) return;
-            _isDragging     = false;
+            _isDragging = false;
             _picture.Cursor = Cursors.Default;
             if (_molecule != null && _molecule.HasGeometry)
             {
-                RenderFrame();      // restore full glossy quality on release
+                RenderFrame();
                 _timer.Start();
             }
+        }
+
+        private void OnFrameSliderScroll(object sender, EventArgs e)
+        {
+            if (!_frameSlider.Visible) return;
+            SetCurrentFrame(_frameSlider.Value, resetRotation: false);
         }
 
         private void RenderFrame(bool lowQuality = false)
         {
             if (_molecule == null || !_molecule.HasGeometry) return;
-            int w = Math.Max(_picture.Width,  64);
+            int w = Math.Max(_picture.Width, 64);
             int h = Math.Max(_picture.Height, 64);
             try
             {
@@ -181,21 +347,19 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
             }
             catch
             {
-                // Ignore render errors — keep the last frame
             }
         }
-
-        // ──────────────────────────────────────────────────────────────────
 
         protected override void OnResize(EventArgs e)
         {
             base.OnResize(e);
             if (_molecule != null && _molecule.HasGeometry)
             {
-                int w = Math.Max(_picture.Width,  64);
+                int w = Math.Max(_picture.Width, 64);
                 int h = Math.Max(_picture.Height, 64);
                 _fixedScale = MoleculeRenderer.ComputeFixedScale(_molecule, w, h);
             }
+            LayoutBottomPanel();
             RenderFrame();
         }
 
@@ -225,12 +389,14 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
 
             float lum = 0.299f * bg.R + 0.587f * bg.G + 0.114f * bg.B;
             Color textColor = lum > 128f ? Color.Black : Color.White;
-            Color panelBg   = lum > 128f ? Color.FromArgb(220, 220, 225) : Color.FromArgb(10, 10, 20);
+            Color panelBg = lum > 128f ? Color.FromArgb(220, 220, 225) : Color.FromArgb(10, 10, 20);
 
-            _label.ForeColor       = textColor;
-            _label.BackColor       = panelBg;
+            _label.ForeColor = textColor;
+            _label.BackColor = panelBg;
             _bottomPanel.BackColor = panelBg;
-            _bgButton.ForeColor    = textColor;
+            _bgButton.ForeColor = textColor;
+            _frameNameLabel.ForeColor = textColor;
+            _frameValueLabel.ForeColor = textColor;
 
             RenderFrame();
         }
@@ -249,58 +415,44 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
             base.Dispose(disposing);
         }
 
-        // ──────────────────────────────────────────────────────────────────
-        // Arcball helpers
-        // ──────────────────────────────────────────────────────────────────
-
-        /// <summary>
-        /// Maps a screen point to a point on a unit sphere.
-        /// Points inside the sphere project onto the upper hemisphere (X/Y rotation).
-        /// Points outside the sphere project onto the equatorial ring (Z roll).
-        /// </summary>
         private float[] ArcballVec(int px, int py)
         {
-            float cx = _picture.Width  / 2f;
+            float cx = _picture.Width / 2f;
             float cy = _picture.Height / 2f;
-            float r  = Math.Min(_picture.Width, _picture.Height) / 2f * 0.85f;
+            float r = Math.Min(_picture.Width, _picture.Height) / 2f * 0.85f;
             if (r < 1f) r = 1f;
 
-            float x  = (px - cx) / r;
-            float y  = (cy - py) / r;   // flip Y: up is positive on the sphere
+            float x = (px - cx) / r;
+            float y = (cy - py) / r;
             float d2 = x * x + y * y;
 
             if (d2 <= 1f)
                 return new[] { x, y, (float)Math.Sqrt(1f - d2) };
 
-            // Outside sphere — project to equator for roll rotation
             float len = (float)Math.Sqrt(d2);
             return new[] { x / len, y / len, 0f };
         }
 
-        /// <summary>
-        /// Returns the rotation matrix that maps unit vector <paramref name="from"/> to
-        /// unit vector <paramref name="to"/> using Rodrigues' formula.
-        /// </summary>
         private static float[,] ArcballRotation(float[] from, float[] to)
         {
-            float dot = from[0]*to[0] + from[1]*to[1] + from[2]*to[2];
-            dot = Math.Max(-1f, Math.Min(1f, dot));   // guard against float rounding
+            float dot = from[0] * to[0] + from[1] * to[1] + from[2] * to[2];
+            dot = Math.Max(-1f, Math.Min(1f, dot));
 
-            // Rotation axis = cross product
-            float kx = from[1]*to[2] - from[2]*to[1];
-            float ky = from[2]*to[0] - from[0]*to[2];
-            float kz = from[0]*to[1] - from[1]*to[0];
-            float kLen = (float)Math.Sqrt(kx*kx + ky*ky + kz*kz);
-            if (kLen < 1e-6f) return Identity3();   // vectors are parallel — no rotation
+            float kx = from[1] * to[2] - from[2] * to[1];
+            float ky = from[2] * to[0] - from[0] * to[2];
+            float kz = from[0] * to[1] - from[1] * to[0];
+            float kLen = (float)Math.Sqrt(kx * kx + ky * ky + kz * kz);
+            if (kLen < 1e-6f) return Identity3();
 
-            kx /= kLen; ky /= kLen; kz /= kLen;
+            kx /= kLen;
+            ky /= kLen;
+            kz /= kLen;
 
             float angle = (float)Math.Acos(dot);
             float c = (float)Math.Cos(angle);
             float s = (float)Math.Sin(angle);
             float t = 1f - c;
 
-            // Rodrigues' rotation matrix
             return new float[,]
             {
                 { t*kx*kx + c,      t*kx*ky - s*kz,  t*kx*kz + s*ky },
@@ -326,15 +478,11 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
             return I;
         }
 
-        /// <summary>
-        /// 8° tilt around X axis — matches the previous default angleXDeg = 8f so the
-        /// initial view shows the same slightly-tilted perspective.
-        /// </summary>
         private static float[,] InitialRotation()
         {
             float rx = 8f * (float)(Math.PI / 180.0);
-            float c  = (float)Math.Cos(rx);
-            float s  = (float)Math.Sin(rx);
+            float c = (float)Math.Cos(rx);
+            float s = (float)Math.Sin(rx);
             return new float[,] { { 1, 0, 0 }, { 0, c, -s }, { 0, s, c } };
         }
     }

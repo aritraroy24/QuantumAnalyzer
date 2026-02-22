@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Runtime.InteropServices;
 using SharpShell.Attributes;
@@ -11,7 +11,7 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
     /// <summary>
     /// Preview Pane handler (Alt+P in Explorer) that shows a live rotating
     /// 3D molecule for Gaussian / ORCA output files.
-    /// DoPreview() returns the control — SharpShell handles window hosting.
+    /// DoPreview() returns the control â€” SharpShell handles window hosting.
     /// </summary>
     [ComVisible(true)]
     [Guid("8D5C3456-789A-4CDE-AEF1-3C4D5E6F7A8B")]
@@ -74,13 +74,16 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
                     }
 
                     var control = new MoleculePreviewControl();
-                    control.SetMolecule(result?.Molecule, label);
+                    if (ext == ".xyz" && result?.MoleculeFrames != null && result.MoleculeFrames.Count > 1)
+                        control.SetMolecules(result.MoleculeFrames, result.MoleculeFrameNames, label);
+                    else
+                        control.SetMolecule(result?.Molecule, label);
                     return control;
                 }
             }
             catch
             {
-                // Fail silently — return blank control
+                // Fail silently â€” return blank control
             }
             return new MoleculePreviewControl();
         }
@@ -126,14 +129,15 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
                     if (summary.AtomCounts != null)
                         foreach (int v in summary.AtomCounts.Values) natoms += v;
                     string perAtom = natoms > 0 ? $"  ({e / natoms:F3} eV/atom)" : "";
-                    return $"[{fileName}] — VASP {calcType}  E = {e:F3} eV{perAtom}";
+                    return $"[{fileName}] â€” VASP {calcType}  E = {e:F3} eV{perAtom}";
                 }
-                return $"[{fileName}] — VASP {calcType}";
+                return $"[{fileName}] â€” VASP {calcType}";
             }
 
             string s = summary == null ? string.Empty
                 : $"{summary.Software}  {summary.Method ?? "?"}/{summary.BasisSet ?? "?"}  {summary.CalcType ?? ""}  {summary.Spin ?? ""}".Trim();
-            return string.IsNullOrEmpty(s) ? fileName : $"{fileName}  —  {s}";
+            return string.IsNullOrEmpty(s) ? fileName : $"{fileName}  â€”  {s}";
         }
     }
 }
+

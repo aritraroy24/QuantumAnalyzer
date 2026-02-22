@@ -8,8 +8,8 @@
     <AssemblyName>QuantumAnalyzer.ShellExtension</AssemblyName>
     <RootNamespace>QuantumAnalyzer.ShellExtension</RootNamespace>
     <ProjectGuid>{2A3B4C5D-6E7F-4091-A2B3-C4D5E6F70123}</ProjectGuid>
-    <AssemblyVersion>1.0.0.0</AssemblyVersion>
-    <FileVersion>1.0.0.0</FileVersion>
+    <AssemblyVersion>0.0.1.0</AssemblyVersion>
+    <FileVersion>0.0.1.0</FileVersion>
     <UseWindowsForms>true</UseWindowsForms>
     <Nullable>disable</Nullable>
     <LangVersion>7.3</LangVersion>

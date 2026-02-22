@@ -218,8 +218,9 @@ if (Test-Path $DllDest) {
 # ---------- Kill Explorer / COM Surrogate ------------------------------------
 
 Write-Host "Stopping Explorer and COM Surrogate..." -ForegroundColor Cyan
-Stop-Process -Name explorer -Force -ErrorAction SilentlyContinue
-Stop-Process -Name dllhost  -Force -ErrorAction SilentlyContinue
+Stop-Process -Name explorer  -Force -ErrorAction SilentlyContinue
+Stop-Process -Name dllhost   -Force -ErrorAction SilentlyContinue
+Stop-Process -Name prevhost  -Force -ErrorAction SilentlyContinue
 Start-Sleep -Milliseconds 3000
 
 # ---------- Copy DLL ---------------------------------------------------------
@@ -305,6 +306,25 @@ Set-ItemProperty -Path $ApprovedKey -Name $ExtGuidTip      -Value "QuantumAnalyz
 Set-ItemProperty -Path $ApprovedKey -Name $ExtGuidPrev     -Value "QuantumAnalyzer Preview Handler"
 Set-ItemProperty -Path $ApprovedKey -Name $ExtGuidMenu     -Value "QuantumAnalyzer Context Menu"
 
+# ---------- Mark preview handler as safe for internet-zone files -------------
+#
+# Without this, Windows shows "The file you are attempting to preview could
+# harm your computer" for any file downloaded from the internet (Zone 3/4).
+# Setting IsPreviewHandlerSafe = "1" on the CLSID key tells the Shell that
+# this handler is safe to invoke regardless of the file's zone marking.
+
+Write-Host "Marking preview handler as safe for internet-zone files..." -ForegroundColor Cyan
+# Use reg.exe for reliable registry writes.  We write to three locations:
+#  - HKCU: takes precedence over HKLM in HKCR, ensuring it is always found even
+#    if a per-user CLSID entry exists that would otherwise shadow the HKLM value.
+#  - HKLM\SOFTWARE\Classes: machine-wide fallback (where RegAsm places the CLSID).
+#  - HKCR: belt-and-suspenders write to the merged root.
+# Without IsPreviewHandlerSafe = "1", Explorer shows "could harm your computer"
+# for any file downloaded from the internet (Zone 3/4).
+& reg add "HKCU\SOFTWARE\Classes\CLSID\$ExtGuidPrev"   /v IsPreviewHandlerSafe /t REG_SZ /d 1 /f 2>&1 | Out-Null
+& reg add "HKLM\SOFTWARE\Classes\CLSID\$ExtGuidPrev"   /v IsPreviewHandlerSafe /t REG_SZ /d 1 /f 2>&1 | Out-Null
+& reg add "HKCR\CLSID\$ExtGuidPrev"                    /v IsPreviewHandlerSafe /t REG_SZ /d 1 /f 2>&1 | Out-Null
+
 # ---------- Restart Explorer -------------------------------------------------
 
 Write-Host "Restarting Windows Explorer..." -ForegroundColor Cyan
@@ -348,12 +368,19 @@ foreach ($c in $checks) {
 }
 
 # Verify keys that contain '*' or '.' — Test-Path expands wildcards, so use reg.exe instead
+# Also verify IsPreviewHandlerSafe via reg.exe (HKCU check is most important).
 $regChecks = @(
-    @{ Label = "All-files (*) context menu"; Key = "HKCR\*\shellex\ContextMenuHandlers\QuantumAnalyzer" },
-    @{ Label = "No-ext shellex preview";     Key = "HKCR\.\shellex\$IID_Preview" }
+    @{ Label = "All-files (*) context menu";        Key = "HKCR\*\shellex\ContextMenuHandlers\QuantumAnalyzer" },
+    @{ Label = "No-ext shellex preview";            Key = "HKCR\.\shellex\$IID_Preview" },
+    @{ Label = "IsPreviewHandlerSafe (HKCU)";       Key = "HKCU\SOFTWARE\Classes\CLSID\$ExtGuidPrev"; Value = "IsPreviewHandlerSafe" },
+    @{ Label = "IsPreviewHandlerSafe (HKLM)";       Key = "HKLM\SOFTWARE\Classes\CLSID\$ExtGuidPrev"; Value = "IsPreviewHandlerSafe" }
 )
 foreach ($rc in $regChecks) {
-    & reg query $rc.Key 2>&1 | Out-Null
+    if ($rc.ContainsKey('Value')) {
+        & reg query $rc.Key /v $rc.Value 2>&1 | Out-Null
+    } else {
+        & reg query $rc.Key 2>&1 | Out-Null
+    }
     $ok     = $LASTEXITCODE -eq 0
     $status = if ($ok) { "[OK]  " } else { "[MISS]" }
     $color  = if ($ok) { 'Green'  } else { 'Red'   }

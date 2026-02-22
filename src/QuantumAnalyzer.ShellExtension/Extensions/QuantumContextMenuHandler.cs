@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
@@ -13,10 +13,10 @@ using QuantumAnalyzer.ShellExtension.Parsers;
 namespace QuantumAnalyzer.ShellExtension.Extensions
 {
     /// <summary>
-    /// Adds a "QuantumAnalyzer ▶" submenu to quantum chemistry files:
-    ///   .log / .out  → "Save Summary" + "Save Image"
-    ///   .cube        → "Save Image"  (with isosurface)
-    ///   .xyz         → "Save Image"  (molecule-only)
+    /// Adds a "QuantumAnalyzer â–¶" submenu to quantum chemistry files:
+    ///   .log / .out  â†’ "Save Summary" + "Save Image"
+    ///   .cube        â†’ "Save Image"  (with isosurface)
+    ///   .xyz         â†’ "Save Image"  (molecule-only)
     /// </summary>
     [ComVisible(true)]
     [Guid("9E6D4567-89AB-4DEF-B0F1-4D5E6F7A8B9C")]
@@ -156,7 +156,7 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
             catch { }
         }
 
-        // ──────────────────────────────────────────────────────────────────
+        // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
         private static Image ResizeImage(Image img, int width, int height)
         {
@@ -213,8 +213,8 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
                     return;
                 }
 
-                // Pass null grid → molecule-only mode (no isovalue row in dialog)
-                using (var dlg = new SaveVisualizationDialog(result.Molecule, null, path))
+                // Pass null grid â†’ molecule-only mode (no isovalue row in dialog)
+                using (var dlg = new SaveVisualizationDialog(result.Molecule, null, path, result.MoleculeFrames, result.MoleculeFrameNames))
                     dlg.ShowDialog();
             }
             catch (Exception ex)
@@ -299,8 +299,8 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
                 }
                 else
                 {
-                    // No lattice data — fall back to molecule-only dialog
-                    using (var dlg = new SaveVisualizationDialog(result.Molecule, null, path))
+                    // No lattice data â€” fall back to molecule-only dialog
+                    using (var dlg = new SaveVisualizationDialog(result.Molecule, null, path, result.MoleculeFrames, result.MoleculeFrameNames))
                         dlg.ShowDialog();
                 }
             }
@@ -402,9 +402,9 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
             catch { }
         }
 
-        // ──────────────────────────────────────────────────────────────────
+        // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         // Helpers
-        // ──────────────────────────────────────────────────────────────────
+        // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
         private string FirstSelectedPath()
         {
@@ -440,3 +440,4 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
         }
     }
 }
+
