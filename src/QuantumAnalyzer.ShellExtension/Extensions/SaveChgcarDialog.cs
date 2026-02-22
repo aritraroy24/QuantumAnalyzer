@@ -104,7 +104,7 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
             _bottomPanel = new Panel
             {
                 Dock      = DockStyle.Bottom,
-                Height    = 106,
+                Height    = 112,
                 BackColor = Color.FromArgb(10, 10, 20),
             };
             BuildBottomPanel();
@@ -195,8 +195,8 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
             _bgColorBtn.Click += OnBgColorClick;
             _bottomPanel.Controls.Add(_bgColorBtn);
 
-            // ── Row 2 (y=38): crystal controls ────────────────────────────────
-            const int row2Y = 38;
+            // ── Row 2 (y=50): crystal controls ────────────────────────────────
+            const int row2Y = 50;
             x = 6;
 
             _chkUnitCell = new CheckBox
@@ -283,8 +283,8 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
             _chkVectors.CheckedChanged += (s, e) => { _showVectors = _chkVectors.Checked; RenderPreview(); };
             _bottomPanel.Controls.Add(_chkVectors);
 
-            // ── Row 3 (y=72): format · save · cancel ──────────────────────────
-            const int row3Y = 72;
+            // ── Row 3 (y=84): format · save · cancel ──────────────────────────
+            const int row3Y = 84;
 
             var fmtLbl = new Label
             {

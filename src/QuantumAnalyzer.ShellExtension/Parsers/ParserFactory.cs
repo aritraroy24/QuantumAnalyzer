@@ -17,6 +17,7 @@ namespace QuantumAnalyzer.ShellExtension.Parsers
             new XyzParser(),
             new CubeParser(),
             new ChgcarParser(),
+            new OutcarParser(),
         };
 
         /// <summary>
@@ -58,8 +59,9 @@ namespace QuantumAnalyzer.ShellExtension.Parsers
             {
                 if (string.IsNullOrEmpty(filePath) || !File.Exists(filePath)) return null;
 
-                // CHGCAR has no extension; detect by filename before content scanning,
-                // because the volumetric section falls outside the 30-line window for large files.
+                // CHGCAR and OUTCAR have no extension; detect by filename before content
+                // scanning. CHGCAR: volumetric section falls outside the 30-line window.
+                // OUTCAR: arbitrary length with final geometry at the end.
                 string fname = Path.GetFileName(filePath).ToUpperInvariant();
                 if (fname == "CHGCAR")
                 {
@@ -68,6 +70,18 @@ namespace QuantumAnalyzer.ShellExtension.Parsers
                         using (var reader = new StreamReader(filePath))
                         {
                             var r = new ChgcarParser().Parse(reader);
+                            if (r != null) return r;
+                        }
+                    }
+                    catch { }
+                }
+                if (fname == "OUTCAR")
+                {
+                    try
+                    {
+                        using (var reader = new StreamReader(filePath))
+                        {
+                            var r = new OutcarParser().Parse(reader);
                             if (r != null) return r;
                         }
                     }

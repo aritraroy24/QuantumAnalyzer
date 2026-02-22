@@ -36,6 +36,18 @@ namespace QuantumAnalyzer.ShellExtension.Models
         public double? Cv { get; set; }               // cal/mol·K
         public double? Entropy { get; set; }          // cal/mol·K
 
+        // ── VASP-specific ────────────────────────────────────────────────
+        public double? TotalEnergyEV  { get; set; }   // energy(sigma->0) in eV (VASP OUTCAR)
+        public double? FermiEnergyEV  { get; set; }   // E-fermi in eV
+        public double? Encut          { get; set; }   // ENCUT in eV
+        public string  KpointMesh     { get; set; }   // e.g. "4x4x4"
+        public int?    Ismear         { get; set; }   // ISMEAR value
+        public double? Sigma          { get; set; }   // SIGMA value (eV)
+        public double? Ediff          { get; set; }   // EDIFF value (eV)
+        public double? Ediffg         { get; set; }   // EDIFFG value (eV/Å or eV)
+        public int?    Isif           { get; set; }   // ISIF value
+        public int?    Ibrion         { get; set; }   // IBRION integer value
+
         // ── Job status ────────────────────────────────────────────────
         public bool NormalTermination { get; set; }   // true when "Normal termination" found
 

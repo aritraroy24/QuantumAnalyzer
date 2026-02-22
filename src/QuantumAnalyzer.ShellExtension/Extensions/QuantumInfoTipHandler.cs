@@ -48,6 +48,14 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
 
         private static string FormatSingleLine(QuantumSummary s)
         {
+            if (s.Software == SoftwareType.VASP && s.TotalEnergyEV.HasValue)
+            {
+                int natoms = 0;
+                if (s.AtomCounts != null)
+                    foreach (int v in s.AtomCounts.Values) natoms += v;
+                string perAtom = natoms > 0 ? $"  ({s.TotalEnergyEV.Value / natoms:F3}/atom)" : "";
+                return $"[VASP] {s.CalcType ?? "OUTCAR"}  E={s.TotalEnergyEV.Value:F3} eV{perAtom}";
+            }
             string energy = s.ElectronicEnergy.HasValue ? $"  E={s.ElectronicEnergy.Value:F4} Eh" : "";
             return $"[{s.Software}] {s.Method ?? "?"}/{s.BasisSet ?? "?"}  {s.CalcType ?? ""}  {s.Spin ?? ""}{energy}";
         }
@@ -60,11 +68,16 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
 
             string sw = s.Software == SoftwareType.Gaussian ? "GAUSSIAN"
                       : s.Software == SoftwareType.Orca     ? "ORCA"
+                      : s.Software == SoftwareType.VASP     ? "VASP"
                       : "STRUCTURE";
 
-            string methodBasis = (!string.IsNullOrEmpty(s.Method) && !string.IsNullOrEmpty(s.BasisSet))
-                ? $"{s.Method}/{s.BasisSet}"
-                : s.Method ?? s.BasisSet ?? "?";
+            string methodBasis;
+            if (s.Software == SoftwareType.VASP)
+                methodBasis = s.CalcType ?? "OUTCAR";
+            else
+                methodBasis = (!string.IsNullOrEmpty(s.Method) && !string.IsNullOrEmpty(s.BasisSet))
+                    ? $"{s.Method}/{s.BasisSet}"
+                    : s.Method ?? s.BasisSet ?? "?";
             sb.AppendLine($"[{sw}]  {methodBasis}");
             sb.AppendLine(new string('─', 42));
 
@@ -78,8 +91,20 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
             AppendField(sb, "Spin",      s.Spin, forSummary);
             AppendField(sb, "Solvation", s.Solvation ?? "None", forSummary);
 
-            // Show energy in main section only when there's no thermochemistry section
-            if (s.ElectronicEnergy.HasValue && !hasThermo)
+            // Show energy — eV for VASP, Hartree for Gaussian/ORCA (only when no thermo section)
+            if (s.Software == SoftwareType.VASP && s.TotalEnergyEV.HasValue)
+            {
+                int natoms = 0;
+                if (s.AtomCounts != null)
+                    foreach (int v in s.AtomCounts.Values) natoms += v;
+                AppendField(sb, "Total Energy", $"{s.TotalEnergyEV.Value:F6} eV", forSummary);
+                if (natoms > 0)
+                    AppendField(sb, "Energy/Atom",
+                        $"{s.TotalEnergyEV.Value / natoms:F6} eV", forSummary);
+                if (s.FermiEnergyEV.HasValue)
+                    AppendField(sb, "Fermi Energy", $"{s.FermiEnergyEV.Value:F4} eV", forSummary);
+            }
+            else if (s.ElectronicEnergy.HasValue && !hasThermo)
                 AppendField(sb, "Total Energy", $"{s.ElectronicEnergy.Value:F6} Eh", forSummary);
 
             if (!isInputFile && s.CalcType != null && s.CalcType.Contains("FREQ"))
@@ -92,6 +117,42 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
             }
             if (s.HomoLumoGap.HasValue)
                 AppendField(sb, "HOMO→LUMO Gap", $"{s.HomoLumoGap.Value:F3} eV", forSummary);
+
+            // VASP calculation settings section
+            bool hasVaspSettings = s.Software == SoftwareType.VASP &&
+                (s.Encut.HasValue || s.KpointMesh != null || s.Ismear.HasValue ||
+                 s.Sigma.HasValue || s.Ediff.HasValue || s.Ediffg.HasValue ||
+                 s.Isif.HasValue  || s.Ibrion.HasValue);
+            if (hasVaspSettings)
+            {
+                sb.AppendLine();
+                sb.AppendLine("CALCULATION SETTINGS");
+                sb.AppendLine(new string('\u2500', 42));
+                if (s.Encut.HasValue)
+                    AppendField(sb, "Energy Cutoff", $"{s.Encut.Value:F1} eV", forSummary);
+                if (s.KpointMesh != null)
+                    AppendField(sb, "K-point Mesh", s.KpointMesh, forSummary);
+                if (s.Ismear.HasValue)
+                {
+                    string smearLabel;
+                    if      (s.Ismear.Value == -5) smearLabel = "Tetrahedron";
+                    else if (s.Ismear.Value == -1) smearLabel = "Fermi";
+                    else if (s.Ismear.Value ==  0) smearLabel = "Gaussian";
+                    else if (s.Ismear.Value >=  1) smearLabel = $"Methfessel-Paxton (N={s.Ismear.Value})";
+                    else                           smearLabel = s.Ismear.Value.ToString();
+                    AppendField(sb, "Smearing Type", $"{s.Ismear.Value} ({smearLabel})", forSummary);
+                }
+                if (s.Sigma.HasValue)
+                    AppendField(sb, "Smearing Width", $"{s.Sigma.Value:F4} eV", forSummary);
+                if (s.Ediff.HasValue)
+                    AppendField(sb, "EDIFF", $"{s.Ediff.Value:G4} eV", forSummary);
+                if (s.Ediffg.HasValue)
+                    AppendField(sb, "EDIFFG", $"{s.Ediffg.Value:G4} eV/\u212B", forSummary);
+                if (s.Isif.HasValue)
+                    AppendField(sb, "ISIF", s.Isif.Value.ToString(), forSummary);
+                if (s.Ibrion.HasValue)
+                    AppendField(sb, "IBRION", s.Ibrion.Value.ToString(), forSummary);
+            }
 
             // Energy details section
             if (hasThermo)
@@ -118,8 +179,14 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
         {
             int len = label.Length;
             // Special cases requested by user
-            if (label == "HOMO→LUMO Gap") return forSummary ? "\t\t" : "\t";
-            if (label == "Tot. E + ZPE Corr.") return forSummary ? "\t" : "\t\t";
+            if (label == "HOMO→LUMO Gap")       return forSummary ? "\t\t" : "\t";
+            if (label == "Tot. E + ZPE Corr.")  return forSummary ? "\t"   : "\t\t";
+            // VASP-specific overrides for labels that cross tab boundaries awkwardly
+            if (label == "Smearing Width")       return "\t";    // 14 chars → 1 tab to col 16
+            if (label == "EDIFF")                return "\t\t\t";
+            if (label == "EDIFFG")               return "\t\t\t";
+            if (label == "ISIF")                 return "\t\t\t";
+            if (label == "IBRION")               return "\t\t\t";
 
             if (len < 8)  return "\t\t\t";
             if (len < 16) return "\t\t";

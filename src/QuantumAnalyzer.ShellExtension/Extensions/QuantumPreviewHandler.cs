@@ -64,6 +64,15 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
                         return crystalCtrl;
                     }
 
+                    // Route OUTCAR (with step data) to OutcarPreviewControl
+                    if (string.IsNullOrEmpty(ext) && IsOutcarFilename(fileName) &&
+                        result?.OutcarStepData != null)
+                    {
+                        var outcarCtrl = new OutcarPreviewControl();
+                        outcarCtrl.SetData(result.Molecule, result.OutcarStepData, label);
+                        return outcarCtrl;
+                    }
+
                     var control = new MoleculePreviewControl();
                     control.SetMolecule(result?.Molecule, label);
                     return control;
@@ -87,6 +96,11 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
             return name.ToUpperInvariant() == "CHGCAR";
         }
 
+        private static bool IsOutcarFilename(string name)
+        {
+            return name.ToUpperInvariant() == "OUTCAR";
+        }
+
         private static string BuildDisplayLabel(string fileName, string ext, QuantumSummary summary)
         {
             if (ext == ".xyz")
@@ -101,6 +115,21 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
 
             if (string.IsNullOrEmpty(ext) && IsChgcarFilename(fileName))
                 return $"[{fileName}] - Charge Density";
+
+            if (string.IsNullOrEmpty(ext) && IsOutcarFilename(fileName))
+            {
+                string calcType = summary?.CalcType ?? "OUTCAR";
+                if (summary?.TotalEnergyEV.HasValue == true)
+                {
+                    double e    = summary.TotalEnergyEV.Value;
+                    int natoms  = 0;
+                    if (summary.AtomCounts != null)
+                        foreach (int v in summary.AtomCounts.Values) natoms += v;
+                    string perAtom = natoms > 0 ? $"  ({e / natoms:F3} eV/atom)" : "";
+                    return $"[{fileName}] — VASP {calcType}  E = {e:F3} eV{perAtom}";
+                }
+                return $"[{fileName}] — VASP {calcType}";
+            }
 
             string s = summary == null ? string.Empty
                 : $"{summary.Software}  {summary.Method ?? "?"}/{summary.BasisSet ?? "?"}  {summary.CalcType ?? ""}  {summary.Spin ?? ""}".Trim();

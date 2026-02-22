@@ -94,7 +94,7 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
             _bottomPanel = new Panel
             {
                 Dock      = DockStyle.Bottom,
-                Height    = 68,
+                Height    = 80,
                 BackColor = Color.FromArgb(10, 10, 20),
             };
 
@@ -210,8 +210,8 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
             _bgButton.Click += OnBgButtonClick;
             _bottomPanel.Controls.Add(_bgButton);
 
-            // ── Row 2 (y=38): crystal controls ────────────────────────────────
-            const int row2Y = 38;
+            // ── Row 2 (y=50): crystal controls ────────────────────────────────
+            const int row2Y = 50;
             x = 6;
 
             _chkUnitCell = new CheckBox

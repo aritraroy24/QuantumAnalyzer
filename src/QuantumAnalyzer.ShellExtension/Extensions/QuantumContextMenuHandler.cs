@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
 using System.Reflection;
@@ -6,6 +7,7 @@ using System.Runtime.InteropServices;
 using System.Windows.Forms;
 using SharpShell.Attributes;
 using SharpShell.SharpContextMenu;
+using QuantumAnalyzer.ShellExtension.Models;
 using QuantumAnalyzer.ShellExtension.Parsers;
 
 namespace QuantumAnalyzer.ShellExtension.Extensions
@@ -37,7 +39,8 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
                 return ext == ".log" || ext == ".out" || ext == ".cube" || ext == ".xyz"
                     || ext == ".poscar" || ext == ".contcar"
                     || (string.IsNullOrEmpty(ext) && IsPoscarFilename(path))
-                    || (string.IsNullOrEmpty(ext) && IsChgcarFilename(path));
+                    || (string.IsNullOrEmpty(ext) && IsChgcarFilename(path))
+                    || (string.IsNullOrEmpty(ext) && IsOutcarFilename(path));
             }
             catch
             {
@@ -52,7 +55,8 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
             // Treat extensionless POSCAR/CONTCAR filenames as crystal files
             bool isCrystalFile = ext == ".poscar" || ext == ".contcar"
                 || (string.IsNullOrEmpty(ext) && IsPoscarFilename(selectedPath));
-            bool isChgcarFile = string.IsNullOrEmpty(ext) && IsChgcarFilename(selectedPath);
+            bool isChgcarFile  = string.IsNullOrEmpty(ext) && IsChgcarFilename(selectedPath);
+            bool isOutcarFile  = string.IsNullOrEmpty(ext) && IsOutcarFilename(selectedPath);
 
             var menu = new ContextMenuStrip();
             var qa   = new ToolStripMenuItem("QuantumAnalyzer");
@@ -81,6 +85,24 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
                 saveImg.Click += OnSaveCrystalImage;
                 TrySetIcon(saveImg);
                 qa.DropDownItems.Add(saveImg);
+            }
+            else if (isOutcarFile)
+            {
+                // OUTCAR: Save Summary + Save Structure + Save Energy Profile
+                var saveSummary = new ToolStripMenuItem("Save Summary");
+                saveSummary.Click += OnSaveSummary;
+                TrySetIcon(saveSummary);
+                qa.DropDownItems.Add(saveSummary);
+
+                var saveStructure = new ToolStripMenuItem("Save Structure");
+                saveStructure.Click += OnSaveOutcarStructure;
+                TrySetIcon(saveStructure);
+                qa.DropDownItems.Add(saveStructure);
+
+                var saveEnergy = new ToolStripMenuItem("Save Energy Profile");
+                saveEnergy.Click += OnSaveEnergyProfile;
+                TrySetIcon(saveEnergy);
+                qa.DropDownItems.Add(saveEnergy);
             }
             else if (ext == ".xyz")
             {
@@ -243,6 +265,90 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
             }
         }
 
+        private void OnSaveOutcarStructure(object sender, EventArgs e)
+        {
+            string path = FirstSelectedPath();
+            if (string.IsNullOrEmpty(path)) return;
+            try
+            {
+                var result = ParserFactory.TryParse(path);
+                if (result?.Molecule == null || !result.Molecule.HasGeometry)
+                {
+                    MessageBox.Show("Could not read structure from the OUTCAR file.",
+                        "QuantumAnalyzer", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
+
+                LatticeCell crystal = BuildCrystalFromOutcar(result.OutcarStepData);
+                if (crystal != null)
+                {
+                    using (var dlg = new SaveCrystalDialog(result.Molecule, crystal))
+                        dlg.ShowDialog();
+                }
+                else
+                {
+                    // No lattice data — fall back to molecule-only dialog
+                    using (var dlg = new SaveVisualizationDialog(result.Molecule, null, path))
+                        dlg.ShowDialog();
+                }
+            }
+            catch (Exception ex)
+            {
+                WriteDebugLog("OnSaveOutcarStructure ERROR: " + ex.ToString());
+                MessageBox.Show($"Error opening save dialog:\n{ex.Message}",
+                    "QuantumAnalyzer", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        private void OnSaveEnergyProfile(object sender, EventArgs e)
+        {
+            string path = FirstSelectedPath();
+            if (string.IsNullOrEmpty(path)) return;
+            try
+            {
+                var result = ParserFactory.TryParse(path);
+                if (result?.OutcarStepData == null || result.OutcarStepData.StepEnergies.Count == 0)
+                {
+                    MessageBox.Show("No energy data found in the OUTCAR file.",
+                        "QuantumAnalyzer", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
+                int lastStep = result.OutcarStepData.StepEnergies.Count - 1;
+                using (var dlg = new SaveEnergyProfileDialog(result.OutcarStepData, lastStep))
+                    dlg.ShowDialog();
+            }
+            catch (Exception ex)
+            {
+                WriteDebugLog("OnSaveEnergyProfile ERROR: " + ex.ToString());
+                MessageBox.Show($"Error opening energy profile dialog:\n{ex.Message}",
+                    "QuantumAnalyzer", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        private static LatticeCell BuildCrystalFromOutcar(OutcarData outcarData)
+        {
+            if (outcarData?.LatticeA == null || outcarData.StepPositions.Count == 0) return null;
+
+            var lastStep      = outcarData.StepPositions[outcarData.StepPositions.Count - 1];
+            var unitCellAtoms = new List<(string Element, double X, double Y, double Z)>();
+            for (int i = 0; i < lastStep.Length; i++)
+            {
+                if (lastStep[i] == null) continue;
+                string elem = (outcarData.AtomElements != null && i < outcarData.AtomElements.Length)
+                    ? outcarData.AtomElements[i] : "X";
+                unitCellAtoms.Add((elem, lastStep[i][0], lastStep[i][1], lastStep[i][2]));
+            }
+
+            return new LatticeCell
+            {
+                SystemName    = "OUTCAR",
+                VectorA       = outcarData.LatticeA,
+                VectorB       = outcarData.LatticeB,
+                VectorC       = outcarData.LatticeC,
+                UnitCellAtoms = unitCellAtoms,
+            };
+        }
+
         private void OnSaveCrystalImage(object sender, EventArgs e)
         {
             string path = FirstSelectedPath();
@@ -311,6 +417,14 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
         private static bool IsChgcarFilename(string path)
         {
             return Path.GetFileName(path).ToUpperInvariant() == "CHGCAR";
+        }
+
+        /// <summary>
+        /// Returns true when the filename (without path) is "OUTCAR", case-insensitive.
+        /// </summary>
+        private static bool IsOutcarFilename(string path)
+        {
+            return Path.GetFileName(path).ToUpperInvariant() == "OUTCAR";
         }
     }
 }
