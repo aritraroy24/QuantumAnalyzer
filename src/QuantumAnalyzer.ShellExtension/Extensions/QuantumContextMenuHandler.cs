@@ -23,6 +23,9 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
     [DisplayName("QuantumAnalyzer Context Menu")]
     [COMServerAssociation(AssociationType.ClassOfExtension, ".log")]
     [COMServerAssociation(AssociationType.ClassOfExtension, ".out")]
+    [COMServerAssociation(AssociationType.ClassOfExtension, ".gjf")]
+    [COMServerAssociation(AssociationType.ClassOfExtension, ".com")]
+    [COMServerAssociation(AssociationType.ClassOfExtension, ".inp")]
     [COMServerAssociation(AssociationType.ClassOfExtension, ".cube")]
     [COMServerAssociation(AssociationType.ClassOfExtension, ".xyz")]
     [COMServerAssociation(AssociationType.ClassOfExtension, ".poscar")]
@@ -36,7 +39,8 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
                 string path = FirstSelectedPath();
                 if (string.IsNullOrEmpty(path)) return false;
                 string ext = Path.GetExtension(path)?.ToLowerInvariant();
-                return ext == ".log" || ext == ".out" || ext == ".cube" || ext == ".xyz"
+                return ext == ".log" || ext == ".out" || ext == ".gjf" || ext == ".com" || ext == ".inp"
+                    || ext == ".cube" || ext == ".xyz"
                     || ext == ".poscar" || ext == ".contcar"
                     || (string.IsNullOrEmpty(ext) && IsPoscarFilename(path))
                     || (string.IsNullOrEmpty(ext) && IsChgcarFilename(path))
@@ -107,6 +111,14 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
             else if (ext == ".xyz")
             {
                 // XYZ: Save Image only (molecule-only, no summary)
+                var saveImg = new ToolStripMenuItem("Save Image");
+                saveImg.Click += OnSaveImage;
+                TrySetIcon(saveImg);
+                qa.DropDownItems.Add(saveImg);
+            }
+            else if (ext == ".gjf" || ext == ".com" || ext == ".inp")
+            {
+                // Gaussian/ORCA input files: Save Image only (molecule preview)
                 var saveImg = new ToolStripMenuItem("Save Image");
                 saveImg.Click += OnSaveImage;
                 TrySetIcon(saveImg);

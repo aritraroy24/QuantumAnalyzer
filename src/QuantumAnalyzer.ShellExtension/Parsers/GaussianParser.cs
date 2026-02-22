@@ -183,9 +183,14 @@ namespace QuantumAnalyzer.ShellExtension.Parsers
             int tempOccCount = 0;
             bool tempFoundVirt = false;
 
+            // Buffer all lines upfront so a second pass can handle input files (.gjf/.com)
+            var allLines = new List<string>();
+            { string _t; while ((_t = reader.ReadLine()) != null) allLines.Add(_t); }
+
             string line;
-            while ((line = reader.ReadLine()) != null)
+            foreach (string _lineItem in allLines)
             {
+                line = _lineItem;
                 // ── Route section ──────────────────────────────────────
                 if (!routeDone)
                 {
@@ -452,6 +457,12 @@ namespace QuantumAnalyzer.ShellExtension.Parsers
                 molecule.Bonds = BondDetector.Detect(molecule.Atoms);
                 summary.AtomCounts = BuildAtomCounts(molecule.Atoms);
             }
+            else if (molecule.Atoms.Count == 0 && summary.CalcType != null)
+            {
+                // No orientation block found — likely a Gaussian input file (.gjf / .com).
+                // Extract geometry from the "charge mult" + "Element X Y Z" input section.
+                TryExtractInputGeometry(allLines, molecule, summary);
+            }
 
             if (!summary.IsValid()) return null;
 
@@ -634,6 +645,125 @@ namespace QuantumAnalyzer.ShellExtension.Parsers
                     result.Add(v);
             }
             return result.ToArray();
+        }
+
+        // ── Input-file geometry extraction (.gjf / .com) ──────────────────────────
+        // Scans the buffered line list for the charge/mult + atom-coordinate section
+        // that Gaussian input files use.  Also reads gen basis names when present.
+        // Called only when no orientation block was found in the file.
+        private static void TryExtractInputGeometry(List<string> allLines, Molecule molecule, QuantumSummary summary)
+        {
+            bool genNeeded = summary.BasisSet != null &&
+                (summary.BasisSet.Equals("gen",    StringComparison.OrdinalIgnoreCase) ||
+                 summary.BasisSet.Equals("genecp", StringComparison.OrdinalIgnoreCase));
+
+            // State machine:
+            //  0 = scanning for end of route section
+            //  1 = skip the title card (first non-blank line after route)
+            //  2 = wait for blank line after title
+            //  3 = look for charge/mult line ("int int")
+            //  4 = read atom lines (Element X Y Z) until blank
+            //  5 = read gen basis block
+            int state = 0;
+            bool inRoute = false;
+            var genBasisNames = new List<string>();
+            int genState = 0; // 0=element line, 1=basis name, 2=skip to ****
+
+            foreach (string rawLine in allLines)
+            {
+                string t = rawLine.Trim();
+
+                if (state == 0) // find end of route
+                {
+                    if (!inRoute && t.Length > 0 && t[0] == '#')
+                        inRoute = true;
+                    else if (inRoute && (t.Length == 0 || t.StartsWith("---")))
+                        state = 1;
+                }
+                else if (state == 1) // skip title card
+                {
+                    if (t.Length > 0) state = 2;
+                }
+                else if (state == 2) // wait for blank after title
+                {
+                    if (t.Length == 0) state = 3;
+                }
+                else if (state == 3) // look for "charge mult" (two integers)
+                {
+                    if (t.Length == 0) continue;
+                    var tks = t.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+                    if (tks.Length == 2 &&
+                        int.TryParse(tks[0], out int charge) &&
+                        int.TryParse(tks[1], out int mult) &&
+                        mult >= 1 && mult <= 10)
+                    {
+                        summary.Charge = charge;
+                        summary.Spin   = MultiplicityToSpinName(mult);
+                        state = 4;
+                    }
+                }
+                else if (state == 4) // read atom coordinates
+                {
+                    if (t.Length == 0) { state = 5; continue; }
+                    var tks = t.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+                    if (tks.Length >= 4 && tks[0].Length >= 1 && char.IsLetter(tks[0][0]))
+                    {
+                        // Strip any fragment/ECP annotations: "C(Fragment=1)" → "C"
+                        string elemRaw = tks[0];
+                        int pi = elemRaw.IndexOf('(');
+                        if (pi >= 0) elemRaw = elemRaw.Substring(0, pi);
+                        string elem = char.ToUpperInvariant(elemRaw[0]) +
+                            (elemRaw.Length > 1 ? elemRaw.Substring(1).ToLowerInvariant() : "");
+                        if (double.TryParse(tks[1], System.Globalization.NumberStyles.Float,
+                                System.Globalization.CultureInfo.InvariantCulture, out double x) &&
+                            double.TryParse(tks[2], System.Globalization.NumberStyles.Float,
+                                System.Globalization.CultureInfo.InvariantCulture, out double y) &&
+                            double.TryParse(tks[3], System.Globalization.NumberStyles.Float,
+                                System.Globalization.CultureInfo.InvariantCulture, out double z))
+                        {
+                            molecule.Atoms.Add(new Atom(elem, x, y, z));
+                        }
+                    }
+                }
+                else if (state == 5 && genNeeded) // read gen basis section
+                {
+                    if (genState == 0)
+                    {
+                        if (t.Length == 0) continue;
+                        var tks = t.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+                        if (tks.Length >= 2 && tks[tks.Length - 1] == "0")
+                        {
+                            bool allElems = true;
+                            for (int i = 0; i < tks.Length - 1; i++)
+                                if (!Regex.IsMatch(tks[i], @"^[A-Z][a-z]?$")) { allElems = false; break; }
+                            if (allElems) genState = 1;
+                        }
+                    }
+                    else if (genState == 1)
+                    {
+                        if (t.Length > 0)
+                        {
+                            string bn = t.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries)[0];
+                            if (!genBasisNames.Contains(bn)) genBasisNames.Add(bn);
+                            genState = 2;
+                        }
+                    }
+                    else if (genState == 2)
+                    {
+                        if (t == "****") genState = 0;
+                    }
+                }
+            }
+
+            if (molecule.Atoms.Count > 0)
+            {
+                molecule.Bonds = BondDetector.Detect(molecule.Atoms);
+                summary.AtomCounts = BuildAtomCounts(molecule.Atoms);
+                if (genBasisNames.Count > 0)
+                    summary.BasisSet = genBasisNames.Count == 1
+                        ? genBasisNames[0]
+                        : "(" + string.Join("+", genBasisNames) + ")";
+            }
         }
 
         private static Dictionary<string, int> BuildAtomCounts(List<Atom> atoms)

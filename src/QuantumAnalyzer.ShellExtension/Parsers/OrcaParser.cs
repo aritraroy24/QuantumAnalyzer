@@ -31,6 +31,7 @@ namespace QuantumAnalyzer.ShellExtension.Parsers
 
         public bool CanParse(string[] firstLines)
         {
+            bool hasExclaim = false, hasStarXyz = false;
             foreach (string line in firstLines)
             {
                 if (line == null) continue;
@@ -38,8 +39,12 @@ namespace QuantumAnalyzer.ShellExtension.Parsers
                 if (line.IndexOf("ORCA", StringComparison.OrdinalIgnoreCase) >= 0 &&
                     line.IndexOf("version", StringComparison.OrdinalIgnoreCase) >= 0) return true;
                 if (line.IndexOf("This ORCA binary", StringComparison.OrdinalIgnoreCase) >= 0) return true;
+                // Detect ORCA input files (! keyword line + * xyz coordinate block)
+                string t = line.TrimStart();
+                if (t.StartsWith("!")) hasExclaim = true;
+                if (t.StartsWith("*") && line.IndexOf("xyz", StringComparison.OrdinalIgnoreCase) >= 0) hasStarXyz = true;
             }
-            return false;
+            return hasExclaim && hasStarXyz;
         }
 
         public ParseResult Parse(TextReader reader)
@@ -357,9 +362,14 @@ namespace QuantumAnalyzer.ShellExtension.Parsers
             bool normalTermination = false;
             double? kBT = null;
 
+            // Buffer all lines so a second pass can handle input files (.inp)
+            var allLines = new List<string>();
+            { string _t; while ((_t = reader.ReadLine()) != null) allLines.Add(_t); }
+
             string line;
-            while ((line = reader.ReadLine()) != null)
+            foreach (string _lineItem in allLines)
             {
+                line = _lineItem;
                 string trimmed = line.Trim();
 
                 // ── Detect calc type from section headers ──────────────
@@ -546,6 +556,10 @@ namespace QuantumAnalyzer.ShellExtension.Parsers
                 summary.AtomCounts = counts;
             }
 
+            // Input-file fallback: if nothing was parsed (ORCA .inp input file)
+            if (summary.ElectronicEnergy == null && molecule.Atoms.Count == 0)
+                TryExtractOrcaInputGeometry(allLines, molecule, summary);
+
             if (summary.ElectronicEnergy == null && molecule.Atoms.Count == 0) return null;
 
             return new ParseResult { Summary = summary, Molecule = molecule };
@@ -554,6 +568,92 @@ namespace QuantumAnalyzer.ShellExtension.Parsers
         // ──────────────────────────────────────────────────────────────
         // Helpers
         // ──────────────────────────────────────────────────────────────
+
+        // ── ORCA input-file geometry extraction (.inp) ────────────────────────────
+        // Parses a plain ORCA input file: "! keywords" + "* xyz charge mult … *" block.
+        // Called only when no ORCA output markers were found in the file.
+        private static void TryExtractOrcaInputGeometry(List<string> allLines, Molecule molecule, QuantumSummary summary)
+        {
+            bool inXyzBlock = false;
+            var inputKeyLines = new List<string>();
+
+            foreach (string rawLine in allLines)
+            {
+                string t = rawLine.Trim();
+                if (t.Length == 0) continue;
+
+                // Collect keyword lines for method/basis/calcType
+                if (t.StartsWith("!"))
+                {
+                    inputKeyLines.Add(t);
+                    continue;
+                }
+
+                // Skip %block settings
+                if (t.StartsWith("%")) continue;
+
+                // "* xyz charge mult" or "* int charge mult" — start coordinate block
+                if (!inXyzBlock && t.StartsWith("*") &&
+                    t.IndexOf("xyz", StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    var tks = t.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+                    // * xyz <charge> <mult>
+                    if (tks.Length >= 4 &&
+                        int.TryParse(tks[2], out int charge) &&
+                        int.TryParse(tks[3], out int mult))
+                    {
+                        summary.Charge = charge;
+                        summary.Spin   = MultiplicityToSpinName(mult);
+                    }
+                    inXyzBlock = true;
+                    continue;
+                }
+
+                // "*" alone closes the coordinate block
+                if (inXyzBlock && t == "*")
+                {
+                    inXyzBlock = false;
+                    continue;
+                }
+
+                // Atom lines inside the block: "Element X Y Z"
+                if (inXyzBlock)
+                {
+                    var tks = t.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+                    if (tks.Length >= 4 && tks[0].Length >= 1 && char.IsLetter(tks[0][0]))
+                    {
+                        string elem = char.ToUpperInvariant(tks[0][0]) +
+                            (tks[0].Length > 1 ? tks[0].Substring(1).ToLowerInvariant() : "");
+                        if (double.TryParse(tks[1], System.Globalization.NumberStyles.Float,
+                                System.Globalization.CultureInfo.InvariantCulture, out double x) &&
+                            double.TryParse(tks[2], System.Globalization.NumberStyles.Float,
+                                System.Globalization.CultureInfo.InvariantCulture, out double y) &&
+                            double.TryParse(tks[3], System.Globalization.NumberStyles.Float,
+                                System.Globalization.CultureInfo.InvariantCulture, out double z))
+                        {
+                            molecule.Atoms.Add(new Atom(elem, x, y, z));
+                        }
+                    }
+                }
+            }
+
+            if (molecule.Atoms.Count > 0)
+            {
+                molecule.Bonds = BondDetector.Detect(molecule.Atoms);
+                var counts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+                foreach (var atom in molecule.Atoms)
+                {
+                    if (counts.ContainsKey(atom.Element)) counts[atom.Element]++;
+                    else counts[atom.Element] = 1;
+                }
+                summary.AtomCounts = counts;
+                // Parse method/basis/calcType from the collected keyword lines
+                if (inputKeyLines.Count > 0)
+                    ParseInputBlock(inputKeyLines, summary);
+                if (summary.CalcType == null) summary.CalcType = "SP";
+                summary.Software = SoftwareType.Orca;
+            }
+        }
 
         private static void ParseInputBlock(List<string> lines, QuantumSummary s)
         {
