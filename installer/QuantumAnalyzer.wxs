@@ -70,6 +70,9 @@
 
           <RegistryValue Root="HKCR" Key=".log\shellex\ContextMenuHandlers\QuantumAnalyzer" Type="string" Value="{9E6D4567-89AB-4DEF-B0F1-4D5E6F7A8B9C}" KeyPath="yes" />
           <RegistryValue Root="HKCR" Key=".out\shellex\ContextMenuHandlers\QuantumAnalyzer" Type="string" Value="{9E6D4567-89AB-4DEF-B0F1-4D5E6F7A8B9C}" />
+          <RegistryValue Root="HKCR" Key=".gjf\shellex\ContextMenuHandlers\QuantumAnalyzer" Type="string" Value="{9E6D4567-89AB-4DEF-B0F1-4D5E6F7A8B9C}" />
+          <RegistryValue Root="HKCR" Key=".com\shellex\ContextMenuHandlers\QuantumAnalyzer" Type="string" Value="{9E6D4567-89AB-4DEF-B0F1-4D5E6F7A8B9C}" />
+          <RegistryValue Root="HKCR" Key=".inp\shellex\ContextMenuHandlers\QuantumAnalyzer" Type="string" Value="{9E6D4567-89AB-4DEF-B0F1-4D5E6F7A8B9C}" />
           <RegistryValue Root="HKCR" Key=".cube\shellex\ContextMenuHandlers\QuantumAnalyzer" Type="string" Value="{9E6D4567-89AB-4DEF-B0F1-4D5E6F7A8B9C}" />
           <RegistryValue Root="HKCR" Key=".cub\shellex\ContextMenuHandlers\QuantumAnalyzer" Type="string" Value="{9E6D4567-89AB-4DEF-B0F1-4D5E6F7A8B9C}" />
           <RegistryValue Root="HKCR" Key=".xyz\shellex\ContextMenuHandlers\QuantumAnalyzer" Type="string" Value="{9E6D4567-89AB-4DEF-B0F1-4D5E6F7A8B9C}" />
