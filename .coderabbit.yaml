@@ -1,0 +1,28 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+language: "en-US"
+early_access: false
+
+reviews:
+  profile: "chill"
+  request_changes_workflow: false
+  high_level_summary: true
+  review_status: true
+  auto_review:
+    enabled: true
+    drafts: false
+
+  # Keep review context focused on source and config files.
+  path_filters:
+    - "src/**"
+    - "installer/**"
+    - ".github/**"
+    - "*.sln"
+    - "*.md"
+    - "!**/bin/**"
+    - "!**/obj/**"
+    - "!.vs/**"
+    - "!.wix/**"
+    - "!dist/**"
+
+chat:
+  auto_reply: true

@@ -429,7 +429,6 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
             PreviewInfoPanel.AddField(general, "Type", "Cube");
             PreviewInfoPanel.AddField(general, "Atoms", atomCount > 0 ? atomCount.ToString() : null);
             PreviewInfoPanel.AddField(general, "Elements", elemCount > 0 ? elemCount.ToString() : null);
-            PreviewInfoPanel.AddField(general, "Data", _grid?.DataLabel);
 
             PreviewInfoPanel.AddField(model, "Iso", _isovalue.ToString("0.000"));
             PreviewInfoPanel.AddField(model, "PosLobe", _showPos ? "On" : "Off");
@@ -446,6 +445,7 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
 
             _infoPanel.SetSections(general, model, field);
         }
+
 
         // ──────────────────────────────────────────────────────────────────
         // Arcball helpers (shared with MoleculePreviewControl)
@@ -514,3 +514,4 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
         }
     }
 }
+

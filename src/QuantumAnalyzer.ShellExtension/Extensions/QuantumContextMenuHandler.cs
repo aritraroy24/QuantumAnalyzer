@@ -15,7 +15,7 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
     /// <summary>
     /// Adds a "QuantumAnalyzer â–¶" submenu to quantum chemistry files:
     ///   .log / .out  â†’ "Save Summary" + "Save Image"
-    ///   .cube        â†’ "Save Image"  (with isosurface)
+    ///   .cube/.cub   â†’ "Save Image"  (with isosurface)
     ///   .xyz         â†’ "Save Image"  (molecule-only)
     /// </summary>
     [ComVisible(true)]
@@ -27,6 +27,7 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
     [COMServerAssociation(AssociationType.ClassOfExtension, ".com")]
     [COMServerAssociation(AssociationType.ClassOfExtension, ".inp")]
     [COMServerAssociation(AssociationType.ClassOfExtension, ".cube")]
+    [COMServerAssociation(AssociationType.ClassOfExtension, ".cub")]
     [COMServerAssociation(AssociationType.ClassOfExtension, ".xyz")]
     [COMServerAssociation(AssociationType.ClassOfExtension, ".poscar")]
     [COMServerAssociation(AssociationType.ClassOfExtension, ".contcar")]
@@ -40,7 +41,7 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
                 if (string.IsNullOrEmpty(path)) return false;
                 string ext = Path.GetExtension(path)?.ToLowerInvariant();
                 return ext == ".log" || ext == ".out" || ext == ".gjf" || ext == ".com" || ext == ".inp"
-                    || ext == ".cube" || ext == ".xyz"
+                    || ext == ".cube" || ext == ".cub" || ext == ".xyz"
                     || ext == ".poscar" || ext == ".contcar"
                     || (string.IsNullOrEmpty(ext) && IsPoscarFilename(path))
                     || (string.IsNullOrEmpty(ext) && IsChgcarFilename(path))
@@ -66,7 +67,7 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
             var qa   = new ToolStripMenuItem("QuantumAnalyzer");
             TrySetIcon(qa);
 
-            if (ext == ".cube")
+            if (ext == ".cube" || ext == ".cub")
             {
                 // Cube: Save Image with isosurface controls
                 var saveImg = new ToolStripMenuItem("Save Image");
@@ -240,7 +241,7 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
                 var result = ParserFactory.TryParse(path);
                 if (result?.VolumetricData == null)
                 {
-                    MessageBox.Show("Could not read volumetric data from the .cube file.",
+                    MessageBox.Show("Could not read volumetric data from the .cube/.cub file.",
                                     "QuantumAnalyzer", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                     return;
                 }

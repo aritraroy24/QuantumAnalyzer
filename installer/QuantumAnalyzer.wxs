@@ -1,0 +1,131 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs" xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
+  <Package
+    Name="QuantumAnalyzer"
+    Manufacturer="QuantumAnalyzer"
+    Version="$(var.ProductVersion)"
+    UpgradeCode="{F0B53236-6A65-4F3C-9342-FF298D7726AB}"
+    InstallerVersion="500"
+    Scope="perMachine"
+    Language="1033">
+
+    <SummaryInformation Description="QuantumAnalyzer Windows Explorer shell extension" />
+    <MajorUpgrade DowngradeErrorMessage="A newer version of QuantumAnalyzer is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="QuantumAnalyzer">
+        <Component Id="cmpMainDll" Guid="*">
+          <File Id="filMainDll" Source="$(var.BinDir)\QuantumAnalyzer.ShellExtension.dll" KeyPath="yes" />
+        </Component>
+
+        <Component Id="cmpSharpShellDll" Guid="*">
+          <File Id="filSharpShellDll" Source="$(var.BinDir)\SharpShell.dll" KeyPath="yes" />
+        </Component>
+
+        <Component Id="cmpApprovedHandlers" Guid="*">
+          <RegistryValue Root="HKLM" Key="SOFTWARE\Microsoft\Windows\CurrentVersion\Shell Extensions\Approved" Name="{6F3A1234-5678-4ABC-8DEF-1A2B3C4D5E6F}" Type="string" Value="QuantumAnalyzer Thumbnail Provider" />
+          <RegistryValue Root="HKLM" Key="SOFTWARE\Microsoft\Windows\CurrentVersion\Shell Extensions\Approved" Name="{7E4B2345-6789-4BCD-9EF0-2B3C4D5E6F7A}" Type="string" Value="QuantumAnalyzer Info Tip Handler" />
+          <RegistryValue Root="HKLM" Key="SOFTWARE\Microsoft\Windows\CurrentVersion\Shell Extensions\Approved" Name="{8D5C3456-789A-4CDE-AEF1-3C4D5E6F7A8B}" Type="string" Value="QuantumAnalyzer Preview Handler" />
+          <RegistryValue Root="HKLM" Key="SOFTWARE\Microsoft\Windows\CurrentVersion\Shell Extensions\Approved" Name="{9E6D4567-89AB-4DEF-B0F1-4D5E6F7A8B9C}" Type="string" Value="QuantumAnalyzer Context Menu" KeyPath="yes" />
+        </Component>
+
+        <Component Id="cmpPreviewHandlerList" Guid="*">
+          <RegistryValue Root="HKLM" Key="SOFTWARE\Microsoft\Windows\CurrentVersion\PreviewHandlers" Name="{8D5C3456-789A-4CDE-AEF1-3C4D5E6F7A8B}" Type="string" Value="QuantumAnalyzer Preview Handler" KeyPath="yes" />
+        </Component>
+
+        <Component Id="cmpFileAssociations" Guid="*">
+          <RegistryValue Root="HKCR" Key=".log\shellex\{E357FCCD-A995-4576-B01F-234630154E96}" Type="string" Value="{6F3A1234-5678-4ABC-8DEF-1A2B3C4D5E6F}" />
+          <RegistryValue Root="HKCR" Key=".log\shellex\{00021500-0000-0000-C000-000000000046}" Type="string" Value="{7E4B2345-6789-4BCD-9EF0-2B3C4D5E6F7A}" />
+          <RegistryValue Root="HKCR" Key=".log\shellex\{8895b1c6-b41f-4c1c-a562-0d564250836f}" Type="string" Value="{8D5C3456-789A-4CDE-AEF1-3C4D5E6F7A8B}" />
+
+          <RegistryValue Root="HKCR" Key=".out\shellex\{E357FCCD-A995-4576-B01F-234630154E96}" Type="string" Value="{6F3A1234-5678-4ABC-8DEF-1A2B3C4D5E6F}" />
+          <RegistryValue Root="HKCR" Key=".out\shellex\{00021500-0000-0000-C000-000000000046}" Type="string" Value="{7E4B2345-6789-4BCD-9EF0-2B3C4D5E6F7A}" />
+          <RegistryValue Root="HKCR" Key=".out\shellex\{8895b1c6-b41f-4c1c-a562-0d564250836f}" Type="string" Value="{8D5C3456-789A-4CDE-AEF1-3C4D5E6F7A8B}" />
+
+          <RegistryValue Root="HKCR" Key=".gjf\shellex\{E357FCCD-A995-4576-B01F-234630154E96}" Type="string" Value="{6F3A1234-5678-4ABC-8DEF-1A2B3C4D5E6F}" />
+          <RegistryValue Root="HKCR" Key=".gjf\shellex\{00021500-0000-0000-C000-000000000046}" Type="string" Value="{7E4B2345-6789-4BCD-9EF0-2B3C4D5E6F7A}" />
+          <RegistryValue Root="HKCR" Key=".gjf\shellex\{8895b1c6-b41f-4c1c-a562-0d564250836f}" Type="string" Value="{8D5C3456-789A-4CDE-AEF1-3C4D5E6F7A8B}" />
+
+          <RegistryValue Root="HKCR" Key=".com\shellex\{E357FCCD-A995-4576-B01F-234630154E96}" Type="string" Value="{6F3A1234-5678-4ABC-8DEF-1A2B3C4D5E6F}" />
+          <RegistryValue Root="HKCR" Key=".com\shellex\{00021500-0000-0000-C000-000000000046}" Type="string" Value="{7E4B2345-6789-4BCD-9EF0-2B3C4D5E6F7A}" />
+          <RegistryValue Root="HKCR" Key=".com\shellex\{8895b1c6-b41f-4c1c-a562-0d564250836f}" Type="string" Value="{8D5C3456-789A-4CDE-AEF1-3C4D5E6F7A8B}" />
+
+          <RegistryValue Root="HKCR" Key=".inp\shellex\{E357FCCD-A995-4576-B01F-234630154E96}" Type="string" Value="{6F3A1234-5678-4ABC-8DEF-1A2B3C4D5E6F}" />
+          <RegistryValue Root="HKCR" Key=".inp\shellex\{00021500-0000-0000-C000-000000000046}" Type="string" Value="{7E4B2345-6789-4BCD-9EF0-2B3C4D5E6F7A}" />
+          <RegistryValue Root="HKCR" Key=".inp\shellex\{8895b1c6-b41f-4c1c-a562-0d564250836f}" Type="string" Value="{8D5C3456-789A-4CDE-AEF1-3C4D5E6F7A8B}" />
+
+          <RegistryValue Root="HKCR" Key=".xyz\shellex\{E357FCCD-A995-4576-B01F-234630154E96}" Type="string" Value="{6F3A1234-5678-4ABC-8DEF-1A2B3C4D5E6F}" />
+          <RegistryValue Root="HKCR" Key=".cube\shellex\{E357FCCD-A995-4576-B01F-234630154E96}" Type="string" Value="{6F3A1234-5678-4ABC-8DEF-1A2B3C4D5E6F}" />
+          <RegistryValue Root="HKCR" Key=".cub\shellex\{E357FCCD-A995-4576-B01F-234630154E96}" Type="string" Value="{6F3A1234-5678-4ABC-8DEF-1A2B3C4D5E6F}" />
+          <RegistryValue Root="HKCR" Key=".poscar\shellex\{E357FCCD-A995-4576-B01F-234630154E96}" Type="string" Value="{6F3A1234-5678-4ABC-8DEF-1A2B3C4D5E6F}" />
+          <RegistryValue Root="HKCR" Key=".contcar\shellex\{E357FCCD-A995-4576-B01F-234630154E96}" Type="string" Value="{6F3A1234-5678-4ABC-8DEF-1A2B3C4D5E6F}" />
+          <RegistryValue Root="HKCR" Key=".xyz\shellex\{00021500-0000-0000-C000-000000000046}" Type="string" Value="{7E4B2345-6789-4BCD-9EF0-2B3C4D5E6F7A}" />
+          <RegistryValue Root="HKCR" Key=".xyz\shellex\{8895b1c6-b41f-4c1c-a562-0d564250836f}" Type="string" Value="{8D5C3456-789A-4CDE-AEF1-3C4D5E6F7A8B}" />
+
+          <RegistryValue Root="HKCR" Key=".cube\shellex\{8895b1c6-b41f-4c1c-a562-0d564250836f}" Type="string" Value="{8D5C3456-789A-4CDE-AEF1-3C4D5E6F7A8B}" />
+          <RegistryValue Root="HKCR" Key=".cub\shellex\{8895b1c6-b41f-4c1c-a562-0d564250836f}" Type="string" Value="{8D5C3456-789A-4CDE-AEF1-3C4D5E6F7A8B}" />
+          <RegistryValue Root="HKCR" Key=".poscar\shellex\{8895b1c6-b41f-4c1c-a562-0d564250836f}" Type="string" Value="{8D5C3456-789A-4CDE-AEF1-3C4D5E6F7A8B}" />
+          <RegistryValue Root="HKCR" Key=".contcar\shellex\{8895b1c6-b41f-4c1c-a562-0d564250836f}" Type="string" Value="{8D5C3456-789A-4CDE-AEF1-3C4D5E6F7A8B}" />
+
+          <RegistryValue Root="HKCR" Key=".log\shellex\ContextMenuHandlers\QuantumAnalyzer" Type="string" Value="{9E6D4567-89AB-4DEF-B0F1-4D5E6F7A8B9C}" KeyPath="yes" />
+          <RegistryValue Root="HKCR" Key=".out\shellex\ContextMenuHandlers\QuantumAnalyzer" Type="string" Value="{9E6D4567-89AB-4DEF-B0F1-4D5E6F7A8B9C}" />
+          <RegistryValue Root="HKCR" Key=".cube\shellex\ContextMenuHandlers\QuantumAnalyzer" Type="string" Value="{9E6D4567-89AB-4DEF-B0F1-4D5E6F7A8B9C}" />
+          <RegistryValue Root="HKCR" Key=".cub\shellex\ContextMenuHandlers\QuantumAnalyzer" Type="string" Value="{9E6D4567-89AB-4DEF-B0F1-4D5E6F7A8B9C}" />
+          <RegistryValue Root="HKCR" Key=".xyz\shellex\ContextMenuHandlers\QuantumAnalyzer" Type="string" Value="{9E6D4567-89AB-4DEF-B0F1-4D5E6F7A8B9C}" />
+          <RegistryValue Root="HKCR" Key=".poscar\shellex\ContextMenuHandlers\QuantumAnalyzer" Type="string" Value="{9E6D4567-89AB-4DEF-B0F1-4D5E6F7A8B9C}" />
+          <RegistryValue Root="HKCR" Key=".contcar\shellex\ContextMenuHandlers\QuantumAnalyzer" Type="string" Value="{9E6D4567-89AB-4DEF-B0F1-4D5E6F7A8B9C}" />
+
+          <RegistryValue Root="HKCR" Key="SystemFileAssociations\.log\shellex\ContextMenuHandlers\QuantumAnalyzer" Type="string" Value="{9E6D4567-89AB-4DEF-B0F1-4D5E6F7A8B9C}" />
+          <RegistryValue Root="HKCR" Key="SystemFileAssociations\.out\shellex\ContextMenuHandlers\QuantumAnalyzer" Type="string" Value="{9E6D4567-89AB-4DEF-B0F1-4D5E6F7A8B9C}" />
+          <RegistryValue Root="HKCR" Key="SystemFileAssociations\.cube\shellex\ContextMenuHandlers\QuantumAnalyzer" Type="string" Value="{9E6D4567-89AB-4DEF-B0F1-4D5E6F7A8B9C}" />
+          <RegistryValue Root="HKCR" Key="SystemFileAssociations\.cub\shellex\ContextMenuHandlers\QuantumAnalyzer" Type="string" Value="{9E6D4567-89AB-4DEF-B0F1-4D5E6F7A8B9C}" />
+          <RegistryValue Root="HKCR" Key="SystemFileAssociations\.xyz\shellex\ContextMenuHandlers\QuantumAnalyzer" Type="string" Value="{9E6D4567-89AB-4DEF-B0F1-4D5E6F7A8B9C}" />
+          <RegistryValue Root="HKCR" Key="SystemFileAssociations\.poscar\shellex\ContextMenuHandlers\QuantumAnalyzer" Type="string" Value="{9E6D4567-89AB-4DEF-B0F1-4D5E6F7A8B9C}" />
+          <RegistryValue Root="HKCR" Key="SystemFileAssociations\.contcar\shellex\ContextMenuHandlers\QuantumAnalyzer" Type="string" Value="{9E6D4567-89AB-4DEF-B0F1-4D5E6F7A8B9C}" />
+        </Component>
+      </Directory>
+    </StandardDirectory>
+
+    <Feature Id="MainFeature" Title="QuantumAnalyzer" Level="1">
+      <ComponentRef Id="cmpMainDll" />
+      <ComponentRef Id="cmpSharpShellDll" />
+      <ComponentRef Id="cmpApprovedHandlers" />
+      <ComponentRef Id="cmpPreviewHandlerList" />
+      <ComponentRef Id="cmpFileAssociations" />
+    </Feature>
+
+    <SetProperty
+      Id="RunRegAsmInstall"
+      Value="&quot;[WindowsFolder]Microsoft.NET\Framework64\v4.0.30319\regasm.exe&quot; /codebase &quot;[#filMainDll]&quot;"
+      Before="RunRegAsmInstall"
+      Sequence="execute" />
+
+    <SetProperty
+      Id="RunRegAsmUninstall"
+      Value="&quot;[WindowsFolder]Microsoft.NET\Framework64\v4.0.30319\regasm.exe&quot; /unregister &quot;[#filMainDll]&quot;"
+      Before="RunRegAsmUninstall"
+      Sequence="execute" />
+
+    <CustomAction
+      Id="RunRegAsmInstall"
+      BinaryRef="Wix4UtilCA_X64"
+      DllEntry="WixQuietExec"
+      Execute="deferred"
+      Return="ignore"
+      Impersonate="no" />
+
+    <CustomAction
+      Id="RunRegAsmUninstall"
+      BinaryRef="Wix4UtilCA_X64"
+      DllEntry="WixQuietExec"
+      Execute="deferred"
+      Return="ignore"
+      Impersonate="no" />
+
+    <InstallExecuteSequence>
+      <Custom Action="RunRegAsmInstall" After="InstallFiles" Condition="NOT REMOVE" />
+      <Custom Action="RunRegAsmUninstall" Before="RemoveFiles" Condition="REMOVE=&quot;ALL&quot;" />
+    </InstallExecuteSequence>
+  </Package>
+</Wix>

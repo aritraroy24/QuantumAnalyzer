@@ -330,7 +330,6 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
             _moleculeFrames = molecules;
             _moleculeFrameNames = frameNames;
             _baseLabel = displayLabel;
-            _currentFrameIndex = 0;
             _summary = summary;
             _sourcePath = sourcePath;
             _optimizationStepEnergiesEv = optimizationStepEnergiesEv;
@@ -338,7 +337,13 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
                 ? _optimizationStepEnergiesEv.Count - 1
                 : 0;
 
+            int initialFrameIndex = 0;
             bool hasMultiple = _moleculeFrames != null && _moleculeFrames.Count > 1;
+            bool isOutputFile = IsOutputFilePath(_sourcePath);
+            if (hasMultiple && isOutputFile)
+                initialFrameIndex = _moleculeFrames.Count - 1;
+            _currentFrameIndex = initialFrameIndex;
+
             ConfigureFrameUi(hasMultiple, !hasMultiple && _optimizationStepEnergiesEv != null && _optimizationStepEnergiesEv.Count > 1);
             ApplyInfoSummary();
             ConfigureEnergyGraphUi();
@@ -351,7 +356,7 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
                 return;
             }
 
-            SetCurrentFrame(0, resetRotation: true);
+            SetCurrentFrame(initialFrameIndex, resetRotation: true);
         }
 
         private void ConfigureFrameUi(bool showFrames, bool showOptimizationSteps)
@@ -457,6 +462,14 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
                 _label.Text = _baseLabel;
             else
                 _label.Text = "Molecule";
+        }
+
+        private static bool IsOutputFilePath(string path)
+        {
+            if (string.IsNullOrEmpty(path)) return false;
+            string ext = Path.GetExtension(path);
+            return string.Equals(ext, ".log", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(ext, ".out", StringComparison.OrdinalIgnoreCase);
         }
 
         private void StartOrStopRendering(bool resetRotation)
@@ -574,8 +587,8 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
                 return;
 
             int n = _optimizationStepEnergiesEv.Count;
-            const int ml = 62;
-            const int mr = 24;
+            const int ml = OutcarPreviewControl.GraphMarginLeft;
+            const int mr = OutcarPreviewControl.GraphMarginRight;
             int chartW = _energyGraphPicture.Width - ml - mr;
             if (chartW <= 0) return;
 

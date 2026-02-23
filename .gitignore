@@ -1,10 +1,8 @@
 tasks/
-changes.md
 CLAUDE.md
 .claude/
-summary.md
 .vs/
 src/QuantumAnalyzer.ShellExtension/obj/
 src/QuantumAnalyzer.ShellExtension/bin/
-file_examples/
-installer/
+.wix
+dist/*.wixpdb

@@ -71,6 +71,8 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
         private const float StepDeg = 0.5f;
         private const int   TickMs  = 33;
         private const int   PanelH  = 80;
+        internal const int GraphMarginLeft = 84;
+        internal const int GraphMarginRight = 28;
 
         // ── Constructor ───────────────────────────────────────────────────────
 
@@ -581,7 +583,10 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
             float lum = 0.299f * background.R + 0.587f * background.G + 0.114f * background.B;
             Color textColor = lum > 128f ? Color.Black : Color.White;
 
-            const int ml = 62, mr = 24, mt = 10, mb = 28;
+            const int mt = 10, mb = 28;
+            const int yLabelZone = 28;
+            int ml = GraphMarginLeft;
+            int mr = GraphMarginRight;
             var chartRect = new Rectangle(ml, mt, gw - ml - mr, gh - mt - mb);
             if (chartRect.Width < 2 || chartRect.Height < 2) return;
 
@@ -671,7 +676,7 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
                     double eVal = minE + rangeE * yi / 4.0;
                     float  y    = energyToY(eVal);
                     g.DrawString(eVal.ToString(isAu ? "F4" : "F2"), labelFont, labelBrush,
-                        new RectangleF(0, y - 8, ml - 3, 16), sf);
+                        new RectangleF(yLabelZone, y - 8, ml - yLabelZone - 4, 16), sf);
                 }
             }
 
@@ -697,7 +702,7 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
                     new StringFormat { Alignment = StringAlignment.Center });
                 // Y-axis title (rotated)
                 var state = g.Save();
-                g.TranslateTransform(14, chartRect.Top + chartRect.Height / 2f);
+                g.TranslateTransform(10, chartRect.Top + chartRect.Height / 2f);
                 g.RotateTransform(-90);
                 g.DrawString("Energy (" + energyUnit + ")", labelFont, labelBrush,
                     new RectangleF(-46, -8, 92, 16),
@@ -721,7 +726,8 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
             int n = _outcarData.StepEnergies.Count;
             if (n < 2) return;
 
-            const int ml = 62, mr = 24;
+            const int ml = GraphMarginLeft;
+            const int mr = GraphMarginRight;
             int chartW = _graphPicture.Width - ml - mr;
             if (chartW <= 0) return;
 

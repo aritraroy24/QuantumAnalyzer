@@ -1,10 +1,9 @@
 using System;
+using System.Reflection;
 using System.Drawing;
 using System.Runtime.InteropServices;
 using SharpShell.Attributes;
 using SharpShell.SharpThumbnailHandler;
-using QuantumAnalyzer.ShellExtension.Parsers;
-using QuantumAnalyzer.ShellExtension.Rendering;
 
 namespace QuantumAnalyzer.ShellExtension.Extensions
 {
@@ -22,26 +21,42 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
     [COMServerAssociation(AssociationType.ClassOfExtension, ".com")]
     [COMServerAssociation(AssociationType.ClassOfExtension, ".inp")]
     [COMServerAssociation(AssociationType.ClassOfExtension, ".xyz")]
+    [COMServerAssociation(AssociationType.ClassOfExtension, ".cube")]
+    [COMServerAssociation(AssociationType.ClassOfExtension, ".cub")]
+    [COMServerAssociation(AssociationType.ClassOfExtension, ".poscar")]
+    [COMServerAssociation(AssociationType.ClassOfExtension, ".contcar")]
     public class QuantumThumbnailProvider : SharpThumbnailHandler
     {
         protected override Bitmap GetThumbnailImage(uint width)
         {
             try
             {
-                // SelectedItemStream is provided by SharpShell from the shell item
-                if (SelectedItemStream == null) return null;
-
-                var result = ParserFactory.TryParse(SelectedItemStream);
-                if (result == null || result.Molecule == null || !result.Molecule.HasGeometry)
-                    return null;
-
                 int size = (int)Math.Max(width, 64);
-                return MoleculeRenderer.RenderBestAngle(result.Molecule, size, size);
+                return LoadQaIcon(size);
             }
             catch
             {
                 // Never crash Explorer — return null to fall back to default icon
                 return null;
+            }
+        }
+
+        private static Bitmap LoadQaIcon(int size)
+        {
+            using (var stream = Assembly.GetExecutingAssembly()
+                .GetManifestResourceStream("QuantumAnalyzer.ShellExtension.Resources.qa-icon.png"))
+            {
+                if (stream == null) return null;
+                using (var baseImage = Image.FromStream(stream))
+                {
+                    var bmp = new Bitmap(size, size);
+                    using (var g = Graphics.FromImage(bmp))
+                    {
+                        g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+                        g.DrawImage(baseImage, 0, 0, size, size);
+                    }
+                    return bmp;
+                }
             }
         }
     }

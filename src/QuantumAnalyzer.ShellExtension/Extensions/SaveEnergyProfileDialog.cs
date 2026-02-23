@@ -25,6 +25,7 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
         private readonly string _energyUnit;
         private int   _selectedStep;
         private Color _background = Color.FromArgb(18, 18, 30);
+        private Panel _bottomPanel;
 
         public SaveEnergyProfileDialog(
             OutcarData outcarData,
@@ -54,10 +55,11 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
             // Paint renders directly into the control at whatever size it currently is.
             _graphPicture.Paint     += OnGraphPaint;
             _graphPicture.MouseDown += OnGraphClick;
+            _graphPicture.Resize    += (s, e) => RefreshGraph();
             Controls.Add(_graphPicture);
 
             // ── Bottom panel ──────────────────────────────────────────────────
-            var bottomPanel = new Panel
+            _bottomPanel = new Panel
             {
                 Dock      = DockStyle.Bottom,
                 Height    = 44,
@@ -76,7 +78,7 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
             };
             _bgButton.FlatAppearance.BorderColor = Color.Silver;
             _bgButton.Click += OnBgClick;
-            bottomPanel.Controls.Add(_bgButton);
+            _bottomPanel.Controls.Add(_bgButton);
 
             var formatLabel = new Label
             {
@@ -86,7 +88,7 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
                 ForeColor = Color.FromArgb(150, 150, 170),
                 Font      = new Font("Segoe UI", 8f),
             };
-            bottomPanel.Controls.Add(formatLabel);
+            _bottomPanel.Controls.Add(formatLabel);
 
             _formatCombo = new ComboBox
             {
@@ -98,7 +100,7 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
             };
             _formatCombo.Items.AddRange(new object[] { "PNG", "TIFF", "JPEG" });
             _formatCombo.SelectedIndex = 0;
-            bottomPanel.Controls.Add(_formatCombo);
+            _bottomPanel.Controls.Add(_formatCombo);
 
             // Step info label (shows selected step + energy after a click)
             _stepInfoLabel = new Label
@@ -112,7 +114,7 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
                 Font      = new Font("Segoe UI", 8f),
                 TextAlign = System.Drawing.ContentAlignment.MiddleLeft,
             };
-            bottomPanel.Controls.Add(_stepInfoLabel);
+            _bottomPanel.Controls.Add(_stepInfoLabel);
 
             // Close / Save buttons (right-anchored via Resize handler)
             _cancelButton = new Button
@@ -128,7 +130,7 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
             };
             _cancelButton.FlatAppearance.BorderColor = Color.Gray;
             _cancelButton.Click += (s, e) => Close();
-            bottomPanel.Controls.Add(_cancelButton);
+            _bottomPanel.Controls.Add(_cancelButton);
 
             _saveButton = new Button
             {
@@ -143,16 +145,18 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
             };
             _saveButton.FlatAppearance.BorderColor = Color.FromArgb(80, 150, 80);
             _saveButton.Click += OnSaveClick;
-            bottomPanel.Controls.Add(_saveButton);
+            _bottomPanel.Controls.Add(_saveButton);
 
-            Controls.Add(bottomPanel);
+            Controls.Add(_bottomPanel);
 
-            bottomPanel.Resize += (s, e) =>
+            _bottomPanel.Resize += (s, e) => LayoutBottomButtons();
+            LayoutBottomButtons();
+            Shown += (s, e) =>
             {
-                int w = bottomPanel.Width;
-                _cancelButton.Left = w - _cancelButton.Width - 6;
-                _saveButton.Left   = _cancelButton.Left - _saveButton.Width - 6;
+                LayoutBottomButtons();
+                RefreshGraph();
             };
+            Load += (s, e) => LayoutBottomButtons();
 
             UpdateStepInfo();
         }
@@ -172,7 +176,12 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
                     _outcarData, _selectedStep, _background, _energyUnit);
         }
 
-        private void RefreshGraph() => _graphPicture.Invalidate();
+        private void RefreshGraph()
+        {
+            if (_graphPicture == null) return;
+            _graphPicture.Invalidate();
+            _graphPicture.Update();
+        }
 
         private void UpdateStepInfo()
         {
@@ -194,7 +203,8 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
             int n = _outcarData.StepEnergies.Count;
             if (n < 2) return;
 
-            const int ml = 62, mr = 24;
+            const int ml = OutcarPreviewControl.GraphMarginLeft;
+            const int mr = OutcarPreviewControl.GraphMarginRight;
             int chartW = _graphPicture.Width - ml - mr;
             if (chartW <= 0) return;
 
@@ -256,6 +266,14 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
                 MessageBox.Show($"Energy profile saved to:\n{dlg.FileName}",
                     "QuantumAnalyzer", MessageBoxButtons.OK, MessageBoxIcon.Information);
             }
+        }
+
+        private void LayoutBottomButtons()
+        {
+            if (_bottomPanel == null) return;
+            int w = _bottomPanel.ClientSize.Width;
+            _cancelButton.Left = Math.Max(6, w - _cancelButton.Width - 6);
+            _saveButton.Left = Math.Max(6, _cancelButton.Left - _saveButton.Width - 6);
         }
     }
 }

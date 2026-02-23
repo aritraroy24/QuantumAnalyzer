@@ -24,6 +24,7 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
     [COMServerAssociation(AssociationType.ClassOfExtension, ".inp")]
     [COMServerAssociation(AssociationType.ClassOfExtension, ".xyz")]
     [COMServerAssociation(AssociationType.ClassOfExtension, ".cube")]
+    [COMServerAssociation(AssociationType.ClassOfExtension, ".cub")]
     [COMServerAssociation(AssociationType.ClassOfExtension, ".poscar")]
     [COMServerAssociation(AssociationType.ClassOfExtension, ".contcar")]
     public class QuantumPreviewHandler : SharpPreviewHandler
@@ -49,7 +50,7 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
                         return chgcarCtrl;
                     }
 
-                    // Route .cube files (volumetric data only) to CubePreviewControl
+                    // Route .cube/.cub files (volumetric data only) to CubePreviewControl
                     if (result?.VolumetricData != null)
                     {
                         var cubeCtrl = new CubePreviewControl();
@@ -121,7 +122,7 @@ namespace QuantumAnalyzer.ShellExtension.Extensions
             if (ext == ".xyz")
                 return $"[{fileName}] - XYZ Structure";
 
-            if (ext == ".cube")
+            if (ext == ".cube" || ext == ".cub")
                 return $"[{fileName}] - Cube File";
 
             if (ext == ".poscar" || ext == ".contcar"
