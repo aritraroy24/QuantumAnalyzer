@@ -40,7 +40,7 @@
 ## Demo
 
 <p align="center">
-  <img src="src/assets/demo.gif" alt="QuantumAnalyzer Demo (placeholder)" />
+  <video src="src/assets/demo.mp4" alt="QuantumAnalyzer Demo" controls width="100%"></video>
 </p>
 
 ## Installation
@@ -76,4 +76,4 @@ Please read `CONTRIBUTING.md` before opening pull requests.
 
 ---
 
-Vibe-coded with care, curiosity, and a focus on useful scientific workflows.
+Vibe-coded with ❤️ for the scientific community.
