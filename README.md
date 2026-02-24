@@ -37,11 +37,10 @@
 - Quantum chemistry: `.log`, `.out`, `.gjf`, `.com`, `.inp`, `.xyz`, `.cube`, `.cub`
 - VASP: `POSCAR`, `CONTCAR`, `CHGCAR`, `OUTCAR`
 
-## Demo
+## Quick Demo
 
-<p align="center">
-  <video src="src/assets/demo.mp4" alt="QuantumAnalyzer Demo" controls width="100%"></video>
-</p>
+[![QuantumAnalyzer Demo](https://img.youtube.com/vi/nXVe8Z59lx8/maxresdefault.jpg)](https://www.youtube.com/watch?v=nXVe8Z59lx8)
+Click the image or [click here](https://www.youtube.com/watch?v=nXVe8Z59lx8) to watch a quick demo of QuantumAnalyzer in action, showcasing its Explorer integration and preview capabilities.
 
 ## Installation
 
